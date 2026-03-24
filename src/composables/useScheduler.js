@@ -96,7 +96,8 @@ export function useScheduler() {
     clubs.forEach(club => {
       clubBlocked[club.name] = (settings.pauses || [])
         .map(pause => {
-          const duration = club.pauseDurations?.[pause.id] || 0
+          const hasCustom = club.pauseDurations && pause.id in club.pauseDurations
+          const duration = hasCustom ? club.pauseDurations[pause.id] : (pause.defaultDuration || 0)
           if (!duration) return null
           const start = timeToMinutes(pause.startTime)
           return [start, start + duration]

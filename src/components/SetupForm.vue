@@ -69,6 +69,7 @@ function addPause() {
     id: crypto.randomUUID(),
     startTime: '12:00',
     label: '',
+    defaultDuration: 60,
   })
 }
 
@@ -84,16 +85,22 @@ function removePause(index) {
 }
 
 function getPauseDuration(club, pauseId) {
-  return club.pauseDurations?.[pauseId] || 0
+  if (club.pauseDurations && pauseId in club.pauseDurations) {
+    return club.pauseDurations[pauseId]
+  }
+  return '' // empty = will use pause default
 }
 
 function setPauseDuration(club, pauseId, value) {
   if (!club.pauseDurations) club.pauseDurations = {}
-  const num = parseInt(value, 10)
-  if (Number.isFinite(num) && num > 0) {
-    club.pauseDurations[pauseId] = num
+  const str = String(value).trim()
+  if (str === '') {
+    delete club.pauseDurations[pauseId] // revert to default
   } else {
-    delete club.pauseDurations[pauseId]
+    const num = parseInt(str, 10)
+    if (Number.isFinite(num) && num >= 0) {
+      club.pauseDurations[pauseId] = num
+    }
   }
 }
 
@@ -191,7 +198,8 @@ const CLUB_COLORS = [
                 @input="setPauseDuration(club, pause.id, $event.target.value)"
                 type="number"
                 min="0"
-                placeholder="0"
+                :placeholder="pause.defaultDuration ?? 60"
+                :title="`Lämna tomt för att använda standard (${pause.defaultDuration ?? 60} min). Sätt till 0 för ingen paus.`"
                 class="w-20 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
               />
               <span class="text-xs text-slate-600">min</span>
@@ -245,7 +253,7 @@ const CLUB_COLORS = [
             </div>
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Paus mellan</label>
+            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5" title="Tid mellan varje matchslot på rinken — t.ex. för isrengöring eller uppvärmning">Paus per match</label>
             <div class="relative">
               <input
                 v-model.number="settings.breakLength"
@@ -290,7 +298,7 @@ const CLUB_COLORS = [
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Min vila mellan</label>
+            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5" title="Minsta tid ett lag måste vänta mellan sina egna matcher">Vila per lag</label>
             <div class="relative">
               <input
                 v-model.number="settings.minRest"
@@ -355,6 +363,16 @@ const CLUB_COLORS = [
             type="time"
             class="bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
           />
+          <div class="relative" title="Standard pauslängd för klubbar utan eget värde">
+            <input
+              v-model.number="pause.defaultDuration"
+              type="number"
+              min="0"
+              placeholder="60"
+              class="w-20 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 pr-8 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
+            />
+            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 text-xs">min</span>
+          </div>
           <button
             type="button"
             @click="removePause(index)"
