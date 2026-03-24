@@ -44,11 +44,28 @@ const rows = computed(() => {
           })
           .filter(Boolean)
         if (affected.length > 0) {
+          const windowDuration = pause.windowDuration || 0
+          const windowEnd = windowDuration > 0
+            ? minutesToTime(timeToMinutes(pause.startTime) + windowDuration)
+            : null
+
+          // Compute staggered start times (same logic as scheduler)
+          const maxDur = Math.max(...affected.map(c => c.duration))
+          const spread = windowDuration > 0 && affected.length > 1
+            ? Math.max(0, Math.floor((windowDuration - maxDur) / (affected.length - 1)))
+            : 0
+          const wStart = timeToMinutes(pause.startTime)
+          const affectedWithTimes = affected.map((c, i) => {
+            const start = wStart + i * spread
+            return { ...c, startTime: minutesToTime(start), endTime: minutesToTime(start + c.duration) }
+          })
+
           result.push({
             type: 'pause',
             label: pause.label || 'Paus',
             startTime: pause.startTime,
-            clubs: affected,
+            windowEnd,
+            clubs: affectedWithTimes,
           })
         }
         inserted.add(pause.id)
@@ -115,13 +132,15 @@ const rinkColumns = computed(() => {
               <td :colspan="rinkColumns.length + 1" class="px-4 py-2.5">
                 <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
                   <span class="text-xs font-display tracking-widest uppercase text-amber-300/80">{{ row.label }}</span>
-                  <span class="text-xs text-slate-600">{{ row.startTime }}</span>
-                  <span class="text-slate-700 text-xs">—</span>
+                  <span class="text-xs text-slate-600">
+                    {{ row.startTime }}<template v-if="row.windowEnd"> – {{ row.windowEnd }}</template>
+                  </span>
+                  <span class="text-slate-700 text-xs">·</span>
                   <span
                     v-for="club in row.clubs"
                     :key="club.name"
                     class="text-xs text-slate-500"
-                  >{{ club.name }}: –{{ club.duration }} min (till {{ club.endTime }})</span>
+                  >{{ club.name }} {{ club.startTime }}–{{ club.endTime }}</span>
                 </div>
               </td>
             </tr>

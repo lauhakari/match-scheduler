@@ -93,17 +93,36 @@ export function useScheduler() {
     // Precompute blocked intervals per club: { clubName: [[startMin, endMin], ...] }
     // Keyed by club.name — must match the clubName set on each team at construction time above
     const clubBlocked = {}
-    clubs.forEach(club => {
-      clubBlocked[club.name] = (settings.pauses || [])
-        .map(pause => {
-          const hasCustom = club.pauseDurations && pause.id in club.pauseDurations
-          const duration = hasCustom ? club.pauseDurations[pause.id] : (pause.defaultDuration || 0)
-          if (!duration) return null
-          const start = timeToMinutes(pause.startTime)
-          return [start, start + duration]
+    clubs.forEach(club => { clubBlocked[club.name] = [] })
+
+    for (const pause of (settings.pauses || [])) {
+      const windowStart = timeToMinutes(pause.startTime)
+      const windowDuration = pause.windowDuration || 0
+
+      // Collect clubs that have a break for this pause
+      const clubBreaks = clubs.map(club => {
+        const hasCustom = club.pauseDurations && pause.id in club.pauseDurations
+        const duration = hasCustom ? club.pauseDurations[pause.id] : (pause.defaultDuration || 0)
+        return { club, duration }
+      }).filter(c => c.duration > 0)
+
+      if (clubBreaks.length === 0) continue
+
+      if (windowDuration > 0 && clubBreaks.length > 1) {
+        // Spread clubs evenly across the window
+        const maxDur = Math.max(...clubBreaks.map(c => c.duration))
+        const spread = Math.max(0, Math.floor((windowDuration - maxDur) / (clubBreaks.length - 1)))
+        clubBreaks.forEach(({ club, duration }, i) => {
+          const start = windowStart + i * spread
+          clubBlocked[club.name].push([start, start + duration])
         })
-        .filter(Boolean)
-    })
+      } else {
+        // Fixed time: all clubs start at the same time
+        clubBreaks.forEach(({ club, duration }) => {
+          clubBlocked[club.name].push([windowStart, windowStart + duration])
+        })
+      }
+    }
 
     function isClubBlocked(clubName, slotStart, slotEnd) {
       return (clubBlocked[clubName] || []).some(

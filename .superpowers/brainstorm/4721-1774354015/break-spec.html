@@ -1,0 +1,26 @@
+<h2>How is each club break specified?</h2>
+<p class="subtitle">What does the user enter to define one break for a club?</p>
+
+<div class="options">
+  <div class="option" data-choice="start-end" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Start time + End time</h3>
+      <p>e.g. 12:00 → 13:00. Explicit and clear. User picks exactly when the break starts and ends.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="start-duration" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Start time + Duration</h3>
+      <p>e.g. 12:00 for 60 min. Consistent with how matchLength works today.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="duration-only" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Duration only — scheduler finds the slot</h3>
+      <p>e.g. "60 min". The scheduler gives the club a gap of at least that length somewhere in the day. No fixed time — maximises flexibility for the scheduler to find the best fit.</p>
+    </div>
+  </div>
+</div>

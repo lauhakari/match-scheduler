@@ -1,0 +1,27 @@
+<h2>How should each break be defined?</h2>
+<p class="subtitle">What information does the user provide for a single break?</p>
+
+<div class="options">
+  <div class="option" data-choice="start-end" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Start time + End time</h3>
+      <p>e.g. 12:00 → 13:00. Explicit, no ambiguity.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="start-duration" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Start time + Duration</h3>
+      <p>e.g. 12:00 for 60 min. Consistent with how match/break lengths work today.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="duration-only" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Duration only — app picks the slot</h3>
+      <p>e.g. "60 min break". The app finds a natural slot boundary and inserts the break. Simple to configure — but needs a rule for where to place it.</p>
+      <p class="subtitle" style="margin-top:8px">Placement rule options: after slot N, at the midpoint of the day, or nearest slot to a target time (e.g. "around 12:00")</p>
+    </div>
+  </div>
+</div>

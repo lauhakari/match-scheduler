@@ -70,6 +70,7 @@ function addPause() {
     startTime: '12:00',
     label: '',
     defaultDuration: 60,
+    windowDuration: 0,
   })
 }
 
@@ -345,7 +346,13 @@ const CLUB_COLORS = [
       </button>
 
       <div v-if="showAdvanced" class="mt-4 space-y-3">
-        <div class="text-xs font-medium uppercase tracking-widest text-slate-600 mb-2">Pauser</div>
+        <div class="flex items-center gap-2 mb-2">
+          <div class="text-xs font-medium uppercase tracking-widest text-slate-600">Pauser</div>
+          <div class="flex-1"></div>
+          <div class="text-[10px] text-slate-700 text-right w-20 pr-1">Fönster</div>
+          <div class="text-[10px] text-slate-700 text-right w-20 pr-1">Standard</div>
+          <div class="w-4"></div>
+        </div>
 
         <div
           v-for="(pause, index) in settings.pauses"
@@ -363,6 +370,16 @@ const CLUB_COLORS = [
             type="time"
             class="bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
           />
+          <div class="relative" title="Fönster inom vilket klubbarnas pauser sprids ut (0 = alla börjar samtidigt)">
+            <input
+              v-model.number="pause.windowDuration"
+              type="number"
+              min="0"
+              placeholder="0"
+              class="w-20 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 pr-8 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
+            />
+            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 text-xs">fön</span>
+          </div>
           <div class="relative" title="Standard pauslängd för klubbar utan eget värde">
             <input
               v-model.number="pause.defaultDuration"
