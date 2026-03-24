@@ -124,17 +124,18 @@ const CLUB_COLORS = [
 </script>
 
 <template>
-  <div class="space-y-8">
+  <form class="space-y-8" @submit.prevent="handleGenerate" novalidate>
     <!-- Clubs & Teams -->
-    <section>
+    <section aria-labelledby="clubs-heading">
       <div class="flex items-center justify-between mb-5">
-        <h2 class="font-display text-2xl tracking-wide text-slate-300 uppercase">
+        <h2 id="clubs-heading" class="font-display text-2xl tracking-wide text-slate-300 uppercase">
           Klubbar & Lag
           <span class="text-sm font-body font-normal tracking-normal text-slate-500 ml-2 lowercase">
             {{ totalTeams() }} lag i {{ clubs.length }} klubbar
           </span>
         </h2>
         <button
+          type="button"
           @click="addClub"
           class="px-4 py-2 text-sm font-medium bg-slate-800 hover:bg-slate-700 text-ice-400 border border-slate-700 hover:border-ice-500/40 rounded-lg transition-all duration-200 cursor-pointer"
         >
@@ -151,63 +152,85 @@ const CLUB_COLORS = [
           :style="{ animationDelay: `${ci * 60}ms` }"
         >
           <div class="flex items-center gap-3 mb-4">
+            <label :for="`club-name-${ci}`" class="sr-only">Klubbnamn</label>
             <input
+              :id="`club-name-${ci}`"
+              :name="`club-name-${ci}`"
               v-model="club.name"
+              type="text"
+              autocomplete="organization"
               class="flex-1 bg-slate-900/60 border border-slate-700/60 rounded-lg px-3 py-2 text-white font-semibold text-sm focus:outline-none focus:border-ice-500/50 focus:ring-1 focus:ring-ice-500/20 transition-all"
               placeholder="Klubbnamn"
             />
             <button
               v-if="clubs.length > 1"
+              type="button"
               @click="removeClub(ci)"
+              :aria-label="`Ta bort ${club.name || 'klubb'}`"
               class="text-slate-500 hover:text-rose-400 transition-colors text-lg leading-none cursor-pointer"
-              title="Ta bort klubb"
             >&times;</button>
           </div>
 
-          <div class="space-y-2 mb-3">
-            <div
-              v-for="(team, ti) in club.teams"
-              :key="ti"
-              class="flex items-center gap-2 animate-slide-down"
-              :style="{ animationDelay: `${ti * 40}ms` }"
-            >
-              <span class="text-slate-600 text-xs w-4 text-right shrink-0">{{ ti + 1 }}</span>
-              <input
-                v-model="team.name"
-                class="flex-1 bg-slate-900/40 border border-slate-700/40 rounded-md px-3 py-1.5 text-slate-200 text-sm focus:outline-none focus:border-ice-500/40 transition-all"
-                placeholder="Lagnamn"
-              />
-              <button
-                v-if="club.teams.length > 1"
-                @click="removeTeam(ci, ti)"
-                class="text-slate-600 hover:text-rose-400 transition-colors text-sm cursor-pointer"
-              >&times;</button>
+          <fieldset>
+            <legend class="sr-only">Lag i {{ club.name || `Klubb ${ci + 1}` }}</legend>
+            <div class="space-y-2 mb-3">
+              <div
+                v-for="(team, ti) in club.teams"
+                :key="ti"
+                class="flex items-center gap-2 animate-slide-down"
+                :style="{ animationDelay: `${ti * 40}ms` }"
+              >
+                <span class="text-slate-600 text-xs w-4 text-right shrink-0" aria-hidden="true">{{ ti + 1 }}</span>
+                <label :for="`team-name-${ci}-${ti}`" class="sr-only">Lagnamn {{ ti + 1 }}</label>
+                <input
+                  :id="`team-name-${ci}-${ti}`"
+                  :name="`team-name-${ci}-${ti}`"
+                  v-model="team.name"
+                  type="text"
+                  class="flex-1 bg-slate-900/40 border border-slate-700/40 rounded-md px-3 py-1.5 text-slate-200 text-sm focus:outline-none focus:border-ice-500/40 transition-all"
+                  placeholder="Lagnamn"
+                />
+                <button
+                  v-if="club.teams.length > 1"
+                  type="button"
+                  @click="removeTeam(ci, ti)"
+                  :aria-label="`Ta bort ${team.name || `lag ${ti + 1}`}`"
+                  class="text-slate-600 hover:text-rose-400 transition-colors text-sm cursor-pointer"
+                >&times;</button>
+              </div>
             </div>
-          </div>
+          </fieldset>
 
           <!-- Pause durations (shown only when pauses exist) -->
           <div v-if="settings.pauses.length > 0" class="mt-3 pt-3 border-t border-slate-700/50">
-            <div class="text-xs text-slate-600 uppercase tracking-widest mb-2">Pauser</div>
+            <p class="text-xs text-slate-600 uppercase tracking-widest mb-2">Pauser</p>
             <div
               v-for="pause in settings.pauses"
               :key="pause.id"
               class="flex items-center gap-3 mb-2"
             >
-              <span class="text-xs text-slate-400 flex-1">{{ pause.label || pause.startTime }}</span>
+              <label
+                :for="`pause-duration-${ci}-${pause.id}`"
+                class="text-xs text-slate-400 flex-1"
+              >{{ pause.label || pause.startTime }}</label>
               <input
+                :id="`pause-duration-${ci}-${pause.id}`"
+                :name="`pause-duration-${ci}-${pause.id}`"
                 :value="getPauseDuration(club, pause.id)"
                 @input="setPauseDuration(club, pause.id, $event.target.value)"
                 type="number"
                 min="0"
                 :placeholder="pause.defaultDuration ?? 60"
+                :aria-label="`Pauslängd för ${club.name || `klubb ${ci + 1}`} — ${pause.label || pause.startTime}`"
                 :title="`Lämna tomt för att använda standard (${pause.defaultDuration ?? 60} min). Sätt till 0 för ingen paus.`"
                 class="w-20 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
               />
-              <span class="text-xs text-slate-600">min</span>
+              <span class="text-xs text-slate-600" aria-hidden="true">min</span>
             </div>
           </div>
 
           <button
+            type="button"
             @click="addTeam(ci)"
             class="text-xs text-slate-500 hover:text-ice-400 transition-colors cursor-pointer"
           >+ Lägg till lag</button>
@@ -216,8 +239,8 @@ const CLUB_COLORS = [
     </section>
 
     <!-- Tournament Settings -->
-    <section>
-      <h2 class="font-display text-2xl tracking-wide text-slate-300 uppercase mb-5">
+    <section aria-labelledby="settings-heading">
+      <h2 id="settings-heading" class="font-display text-2xl tracking-wide text-slate-300 uppercase mb-5">
         Turneringsinställningar
       </h2>
 
@@ -225,52 +248,66 @@ const CLUB_COLORS = [
         <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-5">
           <!-- Time range -->
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Starttid</label>
+            <label for="start-time" class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Starttid</label>
             <input
+              id="start-time"
+              name="start-time"
               v-model="settings.startTime"
               type="time"
               class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-ice-500/50 focus:ring-1 focus:ring-ice-500/20 transition-all"
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Sluttid</label>
+            <label for="end-time" class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Sluttid</label>
             <input
+              id="end-time"
+              name="end-time"
               v-model="settings.endTime"
               type="time"
               class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-ice-500/50 focus:ring-1 focus:ring-ice-500/20 transition-all"
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Matchlängd</label>
+            <label for="match-length" class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Matchlängd</label>
             <div class="relative">
               <input
+                id="match-length"
+                name="match-length"
                 v-model.number="settings.matchLength"
                 type="number"
                 min="5"
                 max="120"
                 class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-12 text-white text-sm focus:outline-none focus:border-ice-500/50 focus:ring-1 focus:ring-ice-500/20 transition-all"
               />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 text-xs">min</span>
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 text-xs" aria-hidden="true">min</span>
             </div>
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5" title="Tid mellan varje matchslot på rinken — t.ex. för isrengöring eller uppvärmning">Paus per match</label>
+            <label
+              for="break-length"
+              class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5"
+              title="Tid mellan varje matchslot på rinken — t.ex. för isrengöring eller uppvärmning"
+            >Paus per match</label>
             <div class="relative">
               <input
+                id="break-length"
+                name="break-length"
                 v-model.number="settings.breakLength"
                 type="number"
                 min="0"
                 max="60"
                 class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-12 text-white text-sm focus:outline-none focus:border-ice-500/50 focus:ring-1 focus:ring-ice-500/20 transition-all"
               />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 text-xs">min</span>
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 text-xs" aria-hidden="true">min</span>
             </div>
           </div>
 
           <!-- Rinks & games -->
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Antal rinkar</label>
+            <label for="num-rinks" class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Antal rinkar</label>
             <input
+              id="num-rinks"
+              name="num-rinks"
               v-model.number="settings.numRinks"
               type="number"
               min="1"
@@ -279,8 +316,10 @@ const CLUB_COLORS = [
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Min matcher / lag</label>
+            <label for="min-games" class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Min matcher / lag</label>
             <input
+              id="min-games"
+              name="min-games"
               v-model.number="settings.minGames"
               type="number"
               min="1"
@@ -289,8 +328,10 @@ const CLUB_COLORS = [
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Max matcher / lag</label>
+            <label for="max-games" class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Max matcher / lag</label>
             <input
+              id="max-games"
+              name="max-games"
               v-model.number="settings.maxGames"
               type="number"
               min="1"
@@ -299,37 +340,52 @@ const CLUB_COLORS = [
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5" title="Minsta tid ett lag måste vänta mellan sina egna matcher">Vila per lag</label>
+            <label
+              for="min-rest"
+              class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5"
+              title="Minsta tid ett lag måste vänta mellan sina egna matcher"
+            >Vila per lag</label>
             <div class="relative">
               <input
+                id="min-rest"
+                name="min-rest"
                 v-model.number="settings.minRest"
                 type="number"
                 min="0"
                 max="120"
                 class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-12 text-white text-sm focus:outline-none focus:border-ice-500/50 focus:ring-1 focus:ring-ice-500/20 transition-all"
               />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 text-xs">min</span>
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 text-xs" aria-hidden="true">min</span>
             </div>
           </div>
         </div>
 
         <!-- Inter-club toggle -->
         <div class="mt-5 pt-5 border-t border-slate-800">
-          <label class="flex items-center gap-3 cursor-pointer group">
+          <div class="flex items-center gap-3">
             <div class="relative">
               <input
+                id="allow-inter-club"
+                name="allow-inter-club"
                 v-model="settings.allowInterClub"
                 type="checkbox"
                 class="sr-only peer"
               />
-              <div class="w-10 h-5 bg-slate-700 rounded-full peer-checked:bg-ice-500/60 transition-colors"></div>
-              <div class="absolute left-0.5 top-0.5 w-4 h-4 bg-slate-400 rounded-full peer-checked:translate-x-5 peer-checked:bg-white transition-all"></div>
+              <div
+                class="w-10 h-5 bg-slate-700 rounded-full peer-checked:bg-ice-500/60 transition-colors cursor-pointer"
+                aria-hidden="true"
+                @click="settings.allowInterClub = !settings.allowInterClub"
+              ></div>
+              <div
+                class="absolute left-0.5 top-0.5 w-4 h-4 bg-slate-400 rounded-full peer-checked:translate-x-5 peer-checked:bg-white transition-all pointer-events-none"
+                aria-hidden="true"
+              ></div>
             </div>
-            <span class="text-sm text-slate-400 group-hover:text-slate-300 transition-colors">
+            <label for="allow-inter-club" class="text-sm text-slate-400 hover:text-slate-300 transition-colors cursor-pointer">
               Tillåt internmatcher
-            </span>
+            </label>
             <span class="text-xs text-slate-600">(lag från samma klubb kan möta varandra)</span>
-          </label>
+          </div>
         </div>
       </div>
     </section>
@@ -338,19 +394,25 @@ const CLUB_COLORS = [
     <div class="mt-6 border-t border-slate-800/60 pt-4">
       <button
         type="button"
+        :aria-expanded="showAdvanced"
+        aria-controls="advanced-settings-panel"
         @click="showAdvanced = !showAdvanced"
         class="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
       >
-        <span :class="showAdvanced ? 'rotate-90' : ''" class="inline-block transition-transform">›</span>
+        <span :class="showAdvanced ? 'rotate-90' : ''" class="inline-block transition-transform" aria-hidden="true">›</span>
         Avancerade inställningar
       </button>
 
-      <div v-if="showAdvanced" class="mt-4 space-y-3">
+      <div
+        v-if="showAdvanced"
+        id="advanced-settings-panel"
+        class="mt-4 space-y-3"
+      >
         <div class="flex items-center gap-2 mb-2">
-          <div class="text-xs font-medium uppercase tracking-widest text-slate-600">Pauser</div>
+          <p class="text-xs font-medium uppercase tracking-widest text-slate-600">Pauser</p>
           <div class="flex-1"></div>
-          <div class="text-[10px] text-slate-700 text-right w-20 pr-1">Fönster</div>
-          <div class="text-[10px] text-slate-700 text-right w-20 pr-1">Standard</div>
+          <p class="text-[10px] text-slate-700 text-right w-20 pr-1" aria-hidden="true">Fönster</p>
+          <p class="text-[10px] text-slate-700 text-right w-20 pr-1" aria-hidden="true">Standard</p>
           <div class="w-4"></div>
         </div>
 
@@ -358,43 +420,58 @@ const CLUB_COLORS = [
           v-for="(pause, index) in settings.pauses"
           :key="pause.id"
           class="flex items-center gap-3"
+          role="group"
+          :aria-label="`Paus ${index + 1}`"
         >
+          <label :for="`pause-label-${pause.id}`" class="sr-only">Pausnamn</label>
           <input
+            :id="`pause-label-${pause.id}`"
+            :name="`pause-label-${pause.id}`"
             v-model="pause.label"
             type="text"
             placeholder="Namn (t.ex. Lunch)"
             class="flex-1 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-slate-500"
           />
+          <label :for="`pause-start-${pause.id}`" class="sr-only">Starttid</label>
           <input
+            :id="`pause-start-${pause.id}`"
+            :name="`pause-start-${pause.id}`"
             v-model="pause.startTime"
             type="time"
             class="bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
           />
           <div class="relative" title="Fönster inom vilket klubbarnas pauser sprids ut (0 = alla börjar samtidigt)">
+            <label :for="`pause-window-${pause.id}`" class="sr-only">Fönsterlängd i minuter</label>
             <input
+              :id="`pause-window-${pause.id}`"
+              :name="`pause-window-${pause.id}`"
               v-model.number="pause.windowDuration"
               type="number"
               min="0"
               placeholder="0"
               class="w-20 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 pr-8 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
             />
-            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 text-xs">fön</span>
+            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 text-xs" aria-hidden="true">fön</span>
           </div>
           <div class="relative" title="Standard pauslängd för klubbar utan eget värde">
+            <label :for="`pause-default-${pause.id}`" class="sr-only">Standard pauslängd i minuter</label>
             <input
+              :id="`pause-default-${pause.id}`"
+              :name="`pause-default-${pause.id}`"
               v-model.number="pause.defaultDuration"
               type="number"
               min="0"
               placeholder="60"
               class="w-20 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 pr-8 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
             />
-            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 text-xs">min</span>
+            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 text-xs" aria-hidden="true">min</span>
           </div>
           <button
             type="button"
             @click="removePause(index)"
+            :aria-label="`Ta bort paus ${pause.label || index + 1}`"
             class="text-slate-600 hover:text-red-400 transition-colors cursor-pointer px-1"
-          >×</button>
+          >&times;</button>
         </div>
 
         <button
@@ -410,13 +487,14 @@ const CLUB_COLORS = [
     <!-- Generate button -->
     <div class="flex justify-center pt-2">
       <button
-        @click="handleGenerate"
+        type="submit"
         :disabled="totalTeams() < 2"
+        :aria-disabled="totalTeams() < 2"
         class="group relative px-8 py-3.5 bg-ice-500 hover:bg-ice-400 disabled:bg-slate-700 disabled:text-slate-500 text-slate-950 font-display text-xl tracking-widest uppercase rounded-xl transition-all duration-200 cursor-pointer disabled:cursor-not-allowed"
       >
         <span class="relative z-10">Generera Spelschema</span>
-        <div class="absolute inset-0 rounded-xl bg-ice-400/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        <div class="absolute inset-0 rounded-xl bg-ice-400/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden="true"></div>
       </button>
     </div>
-  </div>
+  </form>
 </template>
