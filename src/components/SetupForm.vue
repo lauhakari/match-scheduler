@@ -90,7 +90,7 @@ function getPauseDuration(club, pauseId) {
 function setPauseDuration(club, pauseId, value) {
   if (!club.pauseDurations) club.pauseDurations = {}
   const num = parseInt(value, 10)
-  if (num > 0) {
+  if (Number.isFinite(num) && num > 0) {
     club.pauseDurations[pauseId] = num
   } else {
     delete club.pauseDurations[pauseId]
