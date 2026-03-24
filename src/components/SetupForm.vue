@@ -32,6 +32,7 @@ try {
     const parsed = JSON.parse(saved)
     if (parsed.clubs) clubs.value = parsed.clubs
     if (parsed.settings) settings.value = { ...settings.value, ...parsed.settings }
+    if (!Array.isArray(settings.value.pauses)) settings.value.pauses = []
   }
 } catch {}
 
