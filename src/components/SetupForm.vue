@@ -83,6 +83,20 @@ function removePause(index) {
   settings.value.pauses.splice(index, 1)
 }
 
+function getPauseDuration(club, pauseId) {
+  return club.pauseDurations?.[pauseId] || 0
+}
+
+function setPauseDuration(club, pauseId, value) {
+  if (!club.pauseDurations) club.pauseDurations = {}
+  const num = parseInt(value, 10)
+  if (num > 0) {
+    club.pauseDurations[pauseId] = num
+  } else {
+    delete club.pauseDurations[pauseId]
+  }
+}
+
 function handleGenerate() {
   emit('generate', { settings: { ...settings.value }, clubs: clubs.value.map(c => ({ ...c, teams: [...c.teams] })) })
 }
@@ -160,6 +174,27 @@ const CLUB_COLORS = [
                 @click="removeTeam(ci, ti)"
                 class="text-slate-600 hover:text-rose-400 transition-colors text-sm cursor-pointer"
               >&times;</button>
+            </div>
+          </div>
+
+          <!-- Pause durations (shown only when pauses exist) -->
+          <div v-if="settings.pauses.length > 0" class="mt-3 pt-3 border-t border-slate-700/50">
+            <div class="text-xs text-slate-600 uppercase tracking-widest mb-2">Pauser</div>
+            <div
+              v-for="pause in settings.pauses"
+              :key="pause.id"
+              class="flex items-center gap-3 mb-2"
+            >
+              <span class="text-xs text-slate-400 flex-1">{{ pause.label || pause.startTime }}</span>
+              <input
+                :value="getPauseDuration(club, pause.id)"
+                @input="setPauseDuration(club, pause.id, $event.target.value)"
+                type="number"
+                min="0"
+                placeholder="0"
+                class="w-20 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
+              />
+              <span class="text-xs text-slate-600">min</span>
             </div>
           </div>
 
