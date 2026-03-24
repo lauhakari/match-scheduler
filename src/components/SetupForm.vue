@@ -98,7 +98,7 @@ function setPauseDuration(club, pauseId, value) {
 }
 
 function handleGenerate() {
-  emit('generate', { settings: { ...settings.value }, clubs: clubs.value.map(c => ({ ...c, teams: [...c.teams] })) })
+  emit('generate', { settings: { ...settings.value }, clubs: clubs.value.map(c => ({ ...c, teams: [...c.teams], pauseDurations: c.pauseDurations ? { ...c.pauseDurations } : undefined })) })
 }
 
 const totalTeams = () => clubs.value.reduce((sum, c) => sum + c.teams.length, 0)

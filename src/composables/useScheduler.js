@@ -91,6 +91,7 @@ export function useScheduler() {
     })
 
     // Precompute blocked intervals per club: { clubName: [[startMin, endMin], ...] }
+    // Keyed by club.name — must match the clubName set on each team at construction time above
     const clubBlocked = {}
     clubs.forEach(club => {
       clubBlocked[club.name] = (settings.pauses || [])
