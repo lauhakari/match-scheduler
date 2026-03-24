@@ -50,7 +50,7 @@ export function useScheduler() {
     })
 
     if (teams.length < 2) {
-      warnings.value = ['Need at least 2 teams to generate a schedule.']
+      warnings.value = ['Minst 2 lag krävs för att generera ett schema.']
       schedule.value = null
       return
     }
@@ -69,7 +69,7 @@ export function useScheduler() {
     }
 
     if (timeSlots.length === 0) {
-      warnings.value = ['No time slots fit in the given time range.']
+      warnings.value = ['Inga tidsperioder ryms inom det angivna tidsintervallet.']
       schedule.value = null
       return
     }
@@ -77,7 +77,7 @@ export function useScheduler() {
     const allMatchups = generateMatchups(teams, settings.allowInterClub)
 
     if (allMatchups.length === 0) {
-      warnings.value = ['No valid matchups. Check inter-club setting or add more clubs.']
+      warnings.value = ['Inga giltiga matchningar. Kontrollera internmatch-inställningen eller lägg till fler klubbar.']
       schedule.value = null
       return
     }
@@ -90,6 +90,26 @@ export function useScheduler() {
       lastGameEnd[t.id] = -Infinity
     })
 
+    // Precompute blocked intervals per club: { clubName: [[startMin, endMin], ...] }
+    const clubBlocked = {}
+    clubs.forEach(club => {
+      clubBlocked[club.name] = (settings.pauses || [])
+        .map(pause => {
+          const duration = club.pauseDurations?.[pause.id] || 0
+          if (!duration) return null
+          const start = timeToMinutes(pause.startTime)
+          return [start, start + duration]
+        })
+        .filter(Boolean)
+    })
+
+    function isClubBlocked(clubName, slotStart, slotEnd) {
+      return (clubBlocked[clubName] || []).some(
+        ([bStart, bEnd]) => slotStart < bEnd && slotEnd > bStart
+      )
+    }
+
+    const usedMatchups = new Set()
     const slots = []
 
     for (const slotStart of timeSlots) {
@@ -108,6 +128,10 @@ export function useScheduler() {
         let assigned = false
 
         for (const [home, away] of shuffled) {
+          // Skip if this pairing has already been scheduled
+          const pairKey = [home.id, away.id].sort().join('::vs::')
+          if (usedMatchups.has(pairKey)) continue
+
           // Skip if either team is busy this slot
           if (busyThisSlot.has(home.id) || busyThisSlot.has(away.id)) continue
 
@@ -120,12 +144,18 @@ export function useScheduler() {
           const awayRest = slotStart - lastGameEnd[away.id]
           if (homeRest < settings.minRest || awayRest < settings.minRest) continue
 
+          // Skip if either club is on a pause during this slot
+          const slotEnd = slotStart + settings.matchLength
+          if (isClubBlocked(home.clubName, slotStart, slotEnd)) continue
+          if (isClubBlocked(away.clubName, slotStart, slotEnd)) continue
+
           // Assign this match
           matches.push({
             rink: rink + 1,
             home,
             away,
           })
+          usedMatchups.add(pairKey)
           busyThisSlot.add(home.id)
           busyThisSlot.add(away.id)
           gamesPlayed[home.id]++
@@ -152,7 +182,7 @@ export function useScheduler() {
     const newWarnings = []
     teams.forEach(t => {
       if (gamesPlayed[t.id] < settings.minGames) {
-        newWarnings.push(`${t.clubName} — ${t.name}: only ${gamesPlayed[t.id]} game(s) (min: ${settings.minGames})`)
+        newWarnings.push(`${t.clubName} — ${t.name}: bara ${gamesPlayed[t.id]} match(er) (min: ${settings.minGames})`)
       }
     })
 
