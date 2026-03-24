@@ -6,8 +6,8 @@ const emit = defineEmits(['generate'])
 const STORAGE_KEY = 'game-scheduler-state'
 
 const clubs = ref([
-  { name: 'Club A', teams: [{ name: 'Team 1' }, { name: 'Team 2' }] },
-  { name: 'Club B', teams: [{ name: 'Team 1' }, { name: 'Team 2' }] },
+  { name: 'Klubb A', teams: [{ name: 'Lag 1' }, { name: 'Lag 2' }] },
+  { name: 'Klubb B', teams: [{ name: 'Lag 1' }, { name: 'Lag 2' }] },
 ])
 
 const settings = ref({
@@ -20,7 +20,10 @@ const settings = ref({
   maxGames: 5,
   minRest: 20,
   allowInterClub: false,
+  pauses: [],
 })
+
+const showAdvanced = ref(false)
 
 // Load from localStorage
 try {
@@ -44,7 +47,7 @@ watch([clubs, settings], () => {
 
 function addClub() {
   const letter = String.fromCharCode(65 + clubs.value.length)
-  clubs.value.push({ name: `Club ${letter}`, teams: [{ name: 'Team 1' }] })
+  clubs.value.push({ name: `Klubb ${letter}`, teams: [{ name: 'Lag 1' }] })
 }
 
 function removeClub(index) {
@@ -53,11 +56,30 @@ function removeClub(index) {
 
 function addTeam(clubIndex) {
   const club = clubs.value[clubIndex]
-  club.teams.push({ name: `Team ${club.teams.length + 1}` })
+  club.teams.push({ name: `Lag ${club.teams.length + 1}` })
 }
 
 function removeTeam(clubIndex, teamIndex) {
   clubs.value[clubIndex].teams.splice(teamIndex, 1)
+}
+
+function addPause() {
+  settings.value.pauses.push({
+    id: crypto.randomUUID(),
+    startTime: '12:00',
+    label: '',
+  })
+}
+
+function removePause(index) {
+  const pause = settings.value.pauses[index]
+  // Clean up per-club durations for this pause
+  clubs.value.forEach(club => {
+    if (club.pauseDurations) {
+      delete club.pauseDurations[pause.id]
+    }
+  })
+  settings.value.pauses.splice(index, 1)
 }
 
 function handleGenerate() {
@@ -84,16 +106,16 @@ const CLUB_COLORS = [
     <section>
       <div class="flex items-center justify-between mb-5">
         <h2 class="font-display text-2xl tracking-wide text-slate-300 uppercase">
-          Clubs & Teams
+          Klubbar & Lag
           <span class="text-sm font-body font-normal tracking-normal text-slate-500 ml-2 lowercase">
-            {{ totalTeams() }} teams across {{ clubs.length }} clubs
+            {{ totalTeams() }} lag i {{ clubs.length }} klubbar
           </span>
         </h2>
         <button
           @click="addClub"
           class="px-4 py-2 text-sm font-medium bg-slate-800 hover:bg-slate-700 text-ice-400 border border-slate-700 hover:border-ice-500/40 rounded-lg transition-all duration-200 cursor-pointer"
         >
-          + Add Club
+          + Lägg till klubb
         </button>
       </div>
 
@@ -109,13 +131,13 @@ const CLUB_COLORS = [
             <input
               v-model="club.name"
               class="flex-1 bg-slate-900/60 border border-slate-700/60 rounded-lg px-3 py-2 text-white font-semibold text-sm focus:outline-none focus:border-ice-500/50 focus:ring-1 focus:ring-ice-500/20 transition-all"
-              placeholder="Club name"
+              placeholder="Klubbnamn"
             />
             <button
               v-if="clubs.length > 1"
               @click="removeClub(ci)"
               class="text-slate-500 hover:text-rose-400 transition-colors text-lg leading-none cursor-pointer"
-              title="Remove club"
+              title="Ta bort klubb"
             >&times;</button>
           </div>
 
@@ -130,7 +152,7 @@ const CLUB_COLORS = [
               <input
                 v-model="team.name"
                 class="flex-1 bg-slate-900/40 border border-slate-700/40 rounded-md px-3 py-1.5 text-slate-200 text-sm focus:outline-none focus:border-ice-500/40 transition-all"
-                placeholder="Team name"
+                placeholder="Lagnamn"
               />
               <button
                 v-if="club.teams.length > 1"
@@ -143,7 +165,7 @@ const CLUB_COLORS = [
           <button
             @click="addTeam(ci)"
             class="text-xs text-slate-500 hover:text-ice-400 transition-colors cursor-pointer"
-          >+ Add team</button>
+          >+ Lägg till lag</button>
         </div>
       </div>
     </section>
@@ -151,14 +173,14 @@ const CLUB_COLORS = [
     <!-- Tournament Settings -->
     <section>
       <h2 class="font-display text-2xl tracking-wide text-slate-300 uppercase mb-5">
-        Tournament Settings
+        Turneringsinställningar
       </h2>
 
       <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
         <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-5">
           <!-- Time range -->
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Start Time</label>
+            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Starttid</label>
             <input
               v-model="settings.startTime"
               type="time"
@@ -166,7 +188,7 @@ const CLUB_COLORS = [
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">End Time</label>
+            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Sluttid</label>
             <input
               v-model="settings.endTime"
               type="time"
@@ -174,7 +196,7 @@ const CLUB_COLORS = [
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Match Length</label>
+            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Matchlängd</label>
             <div class="relative">
               <input
                 v-model.number="settings.matchLength"
@@ -187,7 +209,7 @@ const CLUB_COLORS = [
             </div>
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Break Between</label>
+            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Paus mellan</label>
             <div class="relative">
               <input
                 v-model.number="settings.breakLength"
@@ -202,7 +224,7 @@ const CLUB_COLORS = [
 
           <!-- Rinks & games -->
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Number of Rinks</label>
+            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Antal rinkar</label>
             <input
               v-model.number="settings.numRinks"
               type="number"
@@ -212,7 +234,7 @@ const CLUB_COLORS = [
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Min Games / Team</label>
+            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Min matcher / lag</label>
             <input
               v-model.number="settings.minGames"
               type="number"
@@ -222,7 +244,7 @@ const CLUB_COLORS = [
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Max Games / Team</label>
+            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Max matcher / lag</label>
             <input
               v-model.number="settings.maxGames"
               type="number"
@@ -232,7 +254,7 @@ const CLUB_COLORS = [
             />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Min Rest Between</label>
+            <label class="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Min vila mellan</label>
             <div class="relative">
               <input
                 v-model.number="settings.minRest"
@@ -259,13 +281,60 @@ const CLUB_COLORS = [
               <div class="absolute left-0.5 top-0.5 w-4 h-4 bg-slate-400 rounded-full peer-checked:translate-x-5 peer-checked:bg-white transition-all"></div>
             </div>
             <span class="text-sm text-slate-400 group-hover:text-slate-300 transition-colors">
-              Allow inter-club matches
+              Tillåt internmatcher
             </span>
-            <span class="text-xs text-slate-600">(teams from the same club can play each other)</span>
+            <span class="text-xs text-slate-600">(lag från samma klubb kan möta varandra)</span>
           </label>
         </div>
       </div>
     </section>
+
+    <!-- Advanced settings -->
+    <div class="mt-6 border-t border-slate-800/60 pt-4">
+      <button
+        type="button"
+        @click="showAdvanced = !showAdvanced"
+        class="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+      >
+        <span :class="showAdvanced ? 'rotate-90' : ''" class="inline-block transition-transform">›</span>
+        Avancerade inställningar
+      </button>
+
+      <div v-if="showAdvanced" class="mt-4 space-y-3">
+        <div class="text-xs font-medium uppercase tracking-widest text-slate-600 mb-2">Pauser</div>
+
+        <div
+          v-for="(pause, index) in settings.pauses"
+          :key="pause.id"
+          class="flex items-center gap-3"
+        >
+          <input
+            v-model="pause.label"
+            type="text"
+            placeholder="Namn (t.ex. Lunch)"
+            class="flex-1 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-slate-500"
+          />
+          <input
+            v-model="pause.startTime"
+            type="time"
+            class="bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
+          />
+          <button
+            type="button"
+            @click="removePause(index)"
+            class="text-slate-600 hover:text-red-400 transition-colors cursor-pointer px-1"
+          >×</button>
+        </div>
+
+        <button
+          type="button"
+          @click="addPause"
+          class="text-xs text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+        >
+          + Lägg till paus
+        </button>
+      </div>
+    </div>
 
     <!-- Generate button -->
     <div class="flex justify-center pt-2">
@@ -274,7 +343,7 @@ const CLUB_COLORS = [
         :disabled="totalTeams() < 2"
         class="group relative px-8 py-3.5 bg-ice-500 hover:bg-ice-400 disabled:bg-slate-700 disabled:text-slate-500 text-slate-950 font-display text-xl tracking-widest uppercase rounded-xl transition-all duration-200 cursor-pointer disabled:cursor-not-allowed"
       >
-        <span class="relative z-10">Generate Schedule</span>
+        <span class="relative z-10">Generera Spelschema</span>
         <div class="absolute inset-0 rounded-xl bg-ice-400/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
       </button>
     </div>
