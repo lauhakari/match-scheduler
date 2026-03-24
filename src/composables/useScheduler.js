@@ -111,7 +111,7 @@ export function useScheduler() {
       if (windowDuration > 0 && clubBreaks.length > 1) {
         // Spread clubs evenly across the window
         const maxDur = Math.max(...clubBreaks.map(c => c.duration))
-        const spread = Math.max(0, Math.floor((windowDuration - maxDur) / (clubBreaks.length - 1)))
+        const spread = Math.max(0, Math.floor((windowDuration - maxDur) / (clubBreaks.length - 1) / 10) * 10)
         clubBreaks.forEach(({ club, duration }, i) => {
           const start = windowStart + i * spread
           clubBlocked[club.name].push([start, start + duration])

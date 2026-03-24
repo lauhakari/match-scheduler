@@ -52,7 +52,7 @@ const rows = computed(() => {
           // Compute staggered start times (same logic as scheduler)
           const maxDur = Math.max(...affected.map(c => c.duration))
           const spread = windowDuration > 0 && affected.length > 1
-            ? Math.max(0, Math.floor((windowDuration - maxDur) / (affected.length - 1)))
+            ? Math.max(0, Math.floor((windowDuration - maxDur) / (affected.length - 1) / 10) * 10)
             : 0
           const wStart = timeToMinutes(pause.startTime)
           const affectedWithTimes = affected.map((c, i) => {
