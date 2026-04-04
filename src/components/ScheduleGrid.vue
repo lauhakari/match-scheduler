@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { expandPauses } from '../composables/useScheduler.js'
 
 const props = defineProps({
   schedule: Object,
@@ -13,8 +14,9 @@ function timeToMinutes(timeStr) {
 }
 
 function getEffectiveDuration(club, pause) {
-  if (club.pauseDurations && pause.id in club.pauseDurations) {
-    return club.pauseDurations[pause.id]
+  const lookupId = pause.originalId || pause.id
+  if (club.pauseDurations && lookupId in club.pauseDurations) {
+    return club.pauseDurations[lookupId]
   }
   return pause.defaultDuration || 0
 }
@@ -30,24 +32,33 @@ const rows = computed(() => {
   const result = []
   const inserted = new Set()
 
+  const lastSlot = props.schedule.slots[props.schedule.slots.length - 1]
+  const endMin = lastSlot ? timeToMinutes(lastSlot.endTime) : 0
+  const allPauses = [
+    ...expandPauses(props.pauses, endMin),
+    ...(props.schedule.generatedPauses || []),
+    ...(props.schedule.foodBreakPauses || []),
+  ]
+
   for (const slot of props.schedule.slots) {
     const slotStart = timeToMinutes(slot.time)
 
-    for (const pause of props.pauses) {
+    for (const pause of allPauses) {
       if (inserted.has(pause.id)) continue
       const pauseStart = timeToMinutes(pause.startTime)
       if (slotStart >= pauseStart) {
         const affected = (props.clubs || [])
+          .filter(club => {
+            if (pause._isFoodBreak) return (pause._clubNames || []).includes(club.name)
+            return true
+          })
           .map(club => {
-            const dur = getEffectiveDuration(club, pause)
+            const dur = pause._isFoodBreak ? pause.defaultDuration : getEffectiveDuration(club, pause)
             return dur > 0 ? { name: club.name, duration: dur, endTime: minutesToTime(pauseStart + dur) } : null
           })
           .filter(Boolean)
         if (affected.length > 0) {
           const windowDuration = pause.windowDuration || 0
-          const windowEnd = windowDuration > 0
-            ? minutesToTime(timeToMinutes(pause.startTime) + windowDuration)
-            : null
 
           // Compute staggered start times (same logic as scheduler)
           const maxDur = Math.max(...affected.map(c => c.duration))
@@ -60,11 +71,23 @@ const rows = computed(() => {
             return { ...c, startTime: minutesToTime(start), endTime: minutesToTime(start + c.duration) }
           })
 
+          // Only show window end when clubs actually stagger
+          const lastClub = affectedWithTimes[affectedWithTimes.length - 1]
+          const windowEnd = spread > 0 && lastClub
+            ? lastClub.endTime
+            : null
+
+          // Hide per-club times when all clubs break identically (no spread, same duration)
+          const allSameDuration = affected.every(c => c.duration === affected[0].duration)
+          const showClubTimes = spread > 0 || !allSameDuration
+
           result.push({
             type: 'pause',
             label: pause.label || 'Paus',
             startTime: pause.startTime,
+            endTime: affectedWithTimes[0]?.endTime || null,
             windowEnd,
+            showClubTimes,
             clubs: affectedWithTimes,
           })
         }
@@ -133,14 +156,16 @@ const rinkColumns = computed(() => {
                 <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
                   <span class="text-xs font-display tracking-widest uppercase text-amber-300/80">{{ row.label }}</span>
                   <span class="text-xs text-slate-600">
-                    {{ row.startTime }}<template v-if="row.windowEnd"> – {{ row.windowEnd }}</template>
+                    {{ row.startTime }}–{{ row.windowEnd || row.endTime }}
                   </span>
-                  <span class="text-slate-700 text-xs">·</span>
-                  <span
-                    v-for="club in row.clubs"
-                    :key="club.name"
-                    class="text-xs text-slate-500"
-                  >{{ club.name }} {{ club.startTime }}–{{ club.endTime }}</span>
+                  <template v-if="row.showClubTimes">
+                    <span class="text-slate-700 text-xs">·</span>
+                    <span
+                      v-for="club in row.clubs"
+                      :key="club.name"
+                      class="text-xs text-slate-500"
+                    >{{ club.name }} {{ club.startTime }}–{{ club.endTime }}</span>
+                  </template>
                 </div>
               </td>
             </tr>
