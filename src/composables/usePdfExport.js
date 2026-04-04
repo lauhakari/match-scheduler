@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { expandPauses } from './useScheduler.js'
 
 // Club palette — muted but distinct, print-friendly
 const CLUB_PALETTE = [
@@ -12,6 +13,65 @@ const CLUB_PALETTE = [
   { bg: [255, 228, 196], text: [120, 60, 15], accent: [249, 115, 22] },    // orange
   { bg: [252, 231, 243], text: [112, 26, 86], accent: [236, 72, 153] },    // pink
 ]
+
+function timeToMinutes(timeStr) {
+  const [h, m] = timeStr.split(':').map(Number)
+  return h * 60 + m
+}
+
+function minutesToTime(minutes) {
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+function getEffectiveDuration(club, pause) {
+  const lookupId = pause.originalId || pause.id
+  if (club.pauseDurations && lookupId in club.pauseDurations) {
+    return club.pauseDurations[lookupId]
+  }
+  return pause.defaultDuration || 0
+}
+
+function buildPauseInfo(pause, clubs) {
+  const pauseStart = timeToMinutes(pause.startTime)
+  const affected = clubs
+    .filter(club => {
+      if (pause._isFoodBreak) return (pause._clubNames || []).includes(club.name)
+      return true
+    })
+    .map(club => {
+      const dur = pause._isFoodBreak ? pause.defaultDuration : getEffectiveDuration(club, pause)
+      return dur > 0 ? { name: club.name, duration: dur } : null
+    })
+    .filter(Boolean)
+
+  if (affected.length === 0) return null
+
+  const windowDuration = pause.windowDuration || 0
+  const maxDur = Math.max(...affected.map(c => c.duration))
+  const spread = windowDuration > 0 && affected.length > 1
+    ? Math.max(0, Math.floor((windowDuration - maxDur) / (affected.length - 1) / 10) * 10)
+    : 0
+
+  const clubTimes = affected.map((c, i) => {
+    const start = pauseStart + i * spread
+    return { ...c, startTime: minutesToTime(start), endTime: minutesToTime(start + c.duration) }
+  })
+
+  const allSameDuration = affected.every(c => c.duration === affected[0].duration)
+  const isUniform = spread === 0 && allSameDuration
+
+  return {
+    label: pause.label || 'Paus',
+    startTime: pause.startTime,
+    endTime: clubTimes[0]?.endTime,
+    isUniform,
+    clubs: clubTimes,
+    isRecurring: !!pause.originalId || !!pause._isFoodBreak,
+    isFoodBreak: !!pause._isFoodBreak,
+  }
+}
 
 export function usePdfExport() {
   function exportPdf(schedule, settings, clubs, { includeSummary = true } = {}) {
@@ -60,12 +120,62 @@ export function usePdfExport() {
       chipX -= 3
     })
 
-    // --- Schedule table ---
+    // --- Build interleaved rows (games + recurring pauses) ---
+    const lastSlot = schedule.slots[schedule.slots.length - 1]
+    const endMin = lastSlot ? timeToMinutes(lastSlot.endTime) : 0
+    const allPauses = [
+      ...expandPauses(settings.pauses || [], endMin),
+      ...(schedule.generatedPauses || []),
+      ...(schedule.foodBreakPauses || []),
+    ]
+
+    // Separate recurring and non-recurring pauses
+    const nonRecurringPauses = []
+    const insertedPauses = new Set()
+
     const rinkHeaders = Array.from({ length: schedule.numRinks }, (_, i) => `Rink ${i + 1}`)
     const head = [['Tid', ...rinkHeaders]]
 
-    const body = schedule.slots.map(slot => {
+    // row types: 'slot' or 'pause'
+    const rowTypes = []
+    const body = []
+    const slotData = []
+
+    for (const slot of schedule.slots) {
+      const slotStart = timeToMinutes(slot.time)
+
+      // Insert recurring pause rows before this slot
+      for (const pause of allPauses) {
+        if (insertedPauses.has(pause.id)) continue
+        const pauseStart = timeToMinutes(pause.startTime)
+        if (slotStart >= pauseStart) {
+          const info = buildPauseInfo(pause, clubs)
+          if (info) {
+            if (info.isFoodBreak) {
+              // Food breaks: inline row AND separate table
+              const pauseText = `${info.label}  ${info.startTime}–${info.endTime}`
+              body.push([{ content: pauseText, colSpan: schedule.numRinks + 1, styles: { halign: 'center' } }])
+              rowTypes.push('pause')
+              slotData.push(null)
+              nonRecurringPauses.push(info)
+            } else if (info.isRecurring) {
+              // Recurring: inline row only
+              const pauseText = `${info.label}  ${info.startTime}–${info.endTime}`
+              body.push([{ content: pauseText, colSpan: schedule.numRinks + 1, styles: { halign: 'center' } }])
+              rowTypes.push('pause')
+              slotData.push(null)
+            } else {
+              // Non-recurring: separate table only
+              nonRecurringPauses.push(info)
+            }
+          }
+          insertedPauses.add(pause.id)
+        }
+      }
+
+      // Add game slot row
       const cells = [slot.time + '\n' + slot.endTime]
+      const rinkMatches = []
       for (let r = 0; r < schedule.numRinks; r++) {
         const match = slot.matches.find(m => m.rink === r + 1)
         if (match && match.home && match.away) {
@@ -73,18 +183,12 @@ export function usePdfExport() {
         } else {
           cells.push('—')
         }
+        rinkMatches.push(match)
       }
-      return cells
-    })
-
-    // Track slot data for custom cell coloring
-    const slotData = schedule.slots.map(slot => {
-      const rinkMatches = []
-      for (let r = 0; r < schedule.numRinks; r++) {
-        rinkMatches.push(slot.matches.find(m => m.rink === r + 1))
-      }
-      return rinkMatches
-    })
+      body.push(cells)
+      rowTypes.push('slot')
+      slotData.push(rinkMatches)
+    }
 
     autoTable(doc, {
       startY: 33,
@@ -118,31 +222,37 @@ export function usePdfExport() {
         },
       },
       didParseCell(data) {
-        // Color match cells based on clubs
-        if (data.section === 'body' && data.column.index > 0) {
+        if (data.section === 'body') {
           const row = data.row.index
-          const col = data.column.index - 1
-          const match = slotData[row]?.[col]
-          if (match?.home && match?.away) {
-            const homeColors = clubColorMap[match.home.clubName]
-            const awayColors = clubColorMap[match.away.clubName]
-            if (homeColors && awayColors) {
-              // Blend the two club colors for the cell background
-              data.cell.styles.fillColor = [
-                Math.round((homeColors.bg[0] + awayColors.bg[0]) / 2),
-                Math.round((homeColors.bg[1] + awayColors.bg[1]) / 2),
-                Math.round((homeColors.bg[2] + awayColors.bg[2]) / 2),
-              ]
+          if (rowTypes[row] === 'pause') {
+            // Style pause rows with amber accent
+            data.cell.styles.fillColor = [255, 251, 235]
+            data.cell.styles.textColor = [120, 80, 10]
+            data.cell.styles.fontStyle = 'bold'
+            data.cell.styles.fontSize = 8
+          } else if (data.column.index > 0) {
+            // Color match cells based on clubs
+            const col = data.column.index - 1
+            const match = slotData[row]?.[col]
+            if (match?.home && match?.away) {
+              const homeColors = clubColorMap[match.home.clubName]
+              const awayColors = clubColorMap[match.away.clubName]
+              if (homeColors && awayColors) {
+                data.cell.styles.fillColor = [
+                  Math.round((homeColors.bg[0] + awayColors.bg[0]) / 2),
+                  Math.round((homeColors.bg[1] + awayColors.bg[1]) / 2),
+                  Math.round((homeColors.bg[2] + awayColors.bg[2]) / 2),
+                ]
+              }
+            } else {
+              data.cell.styles.fillColor = [248, 250, 252]
+              data.cell.styles.textColor = [180, 180, 180]
             }
-          } else {
-            data.cell.styles.fillColor = [248, 250, 252]
-            data.cell.styles.textColor = [180, 180, 180]
           }
         }
       },
       didDrawCell(data) {
-        // Draw a colored left accent bar on match cells
-        if (data.section === 'body' && data.column.index > 0) {
+        if (data.section === 'body' && rowTypes[data.row.index] === 'slot' && data.column.index > 0) {
           const row = data.row.index
           const col = data.column.index - 1
           const match = slotData[row]?.[col]
@@ -161,6 +271,57 @@ export function usePdfExport() {
         }
       },
     })
+
+    // --- Non-recurring pause tables ---
+    for (const pauseInfo of nonRecurringPauses) {
+      let y = doc.lastAutoTable.finalY + 8
+      if (y + 30 > pageH) {
+        doc.addPage()
+        y = 14
+      }
+
+      // Pause title
+      doc.setFillColor(255, 251, 235)
+      doc.roundedRect(12, y, 80, 7, 1.5, 1.5, 'F')
+      doc.setTextColor(120, 80, 10)
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`${pauseInfo.label.toUpperCase()}  ${pauseInfo.startTime}–${pauseInfo.endTime}`, 16, y + 5)
+
+      autoTable(doc, {
+        startY: y + 10,
+        head: [['Klubb', 'Start', 'Slut']],
+        body: pauseInfo.clubs.map(c => [c.name, c.startTime, c.endTime]),
+        theme: 'grid',
+        styles: {
+          fontSize: 8,
+          cellPadding: 3,
+          lineColor: [203, 213, 225],
+          lineWidth: 0.3,
+          textColor: [30, 41, 59],
+        },
+        headStyles: {
+          fillColor: [120, 80, 10],
+          textColor: [255, 251, 235],
+          fontStyle: 'bold',
+        },
+        columnStyles: {
+          0: { fontStyle: 'bold' },
+          1: { halign: 'center' },
+          2: { halign: 'center' },
+        },
+        didParseCell(data) {
+          if (data.section === 'body' && data.column.index === 0) {
+            const clubName = pauseInfo.clubs[data.row.index]?.name
+            const colors = clubColorMap[clubName]
+            if (colors) {
+              data.cell.styles.fillColor = colors.bg
+              data.cell.styles.textColor = colors.text
+            }
+          }
+        },
+      })
+    }
 
     // --- Team summary ---
     if (includeSummary) {
@@ -247,5 +408,201 @@ export function usePdfExport() {
     })
   }
 
-  return { exportPdf }
+  function exportClubPdf(schedule, settings, clubs, targetClub) {
+    const doc = new jsPDF({ orientation: 'portrait' })
+    const pageW = doc.internal.pageSize.getWidth()
+    const pageH = doc.internal.pageSize.getHeight()
+
+    // Club color
+    const clubIndex = clubs.findIndex(c => c.name === targetClub.name)
+    const colors = CLUB_PALETTE[clubIndex >= 0 ? clubIndex % CLUB_PALETTE.length : 0]
+
+    // --- Header ---
+    doc.setFillColor(...colors.accent)
+    doc.rect(0, 0, pageW, 24, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(18)
+    doc.setFont('helvetica', 'bold')
+    doc.text(targetClub.name.toUpperCase(), 14, 12)
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`${settings.startTime} – ${settings.endTime}  ·  ${settings.matchLength} min matcher`, 14, 19)
+
+    // --- Collect pauses for this club ---
+    const lastSlot = schedule.slots[schedule.slots.length - 1]
+    const endMin = lastSlot ? timeToMinutes(lastSlot.endTime) : 0
+    const allPauses = [
+      ...expandPauses(settings.pauses || [], endMin),
+      ...(schedule.generatedPauses || []),
+      ...(schedule.foodBreakPauses || []),
+    ]
+
+    // Build pause events for this club — only non-recurring (set time) pauses
+    const clubPauseEvents = []
+    for (const pause of allPauses) {
+      if (pause.originalId) continue
+      if (pause._isFoodBreak && !(pause._clubNames || []).includes(targetClub.name)) continue
+      const dur = pause._isFoodBreak ? pause.defaultDuration : getEffectiveDuration(targetClub, pause)
+      if (dur <= 0) continue
+      const pStart = timeToMinutes(pause.startTime)
+      const windowDuration = pause.windowDuration || 0
+
+      // Calculate this club's specific start time (accounting for spread)
+      const affected = clubs.filter(c => getEffectiveDuration(c, pause) > 0)
+      const maxDur = Math.max(...affected.map(c => getEffectiveDuration(c, pause)))
+      const spread = windowDuration > 0 && affected.length > 1
+        ? Math.max(0, Math.floor((windowDuration - maxDur) / (affected.length - 1) / 10) * 10)
+        : 0
+      const clubIdx = affected.findIndex(c => c.name === targetClub.name)
+      const clubStart = pStart + (clubIdx >= 0 ? clubIdx * spread : 0)
+
+      clubPauseEvents.push({
+        label: pause.label || 'Paus',
+        startMin: clubStart,
+        endMin: clubStart + dur,
+        startTime: minutesToTime(clubStart),
+        endTime: minutesToTime(clubStart + dur),
+      })
+    }
+
+    // --- Per-team tables ---
+    let y = 30
+
+    for (const team of targetClub.teams) {
+      const teamId = `${targetClub.name}::${team.name}`
+
+      // Collect this team's games
+      const teamGames = []
+      for (const slot of schedule.slots) {
+        for (const match of slot.matches) {
+          if (!match.home || !match.away) continue
+          if (match.home.id === teamId || match.away.id === teamId) {
+            const opponent = match.home.id === teamId ? match.away : match.home
+            teamGames.push({
+              time: slot.time,
+              endTime: slot.endTime,
+              startMin: timeToMinutes(slot.time),
+              opponent,
+              rink: match.rink,
+            })
+          }
+        }
+      }
+
+      // Sort by time
+      teamGames.sort((a, b) => a.startMin - b.startMin)
+
+      // Build interleaved rows: games + pauses
+      const tableBody = []
+      const tableRowTypes = []
+      const insertedPauseIdxs = new Set()
+
+      for (const game of teamGames) {
+        // Insert any pauses that fall before this game
+        for (let pi = 0; pi < clubPauseEvents.length; pi++) {
+          if (insertedPauseIdxs.has(pi)) continue
+          const pe = clubPauseEvents[pi]
+          if (pe.startMin <= game.startMin) {
+            tableBody.push([{ content: `${pe.label}  ${pe.startTime}–${pe.endTime}`, colSpan: 3, styles: { halign: 'center' } }])
+            tableRowTypes.push('pause')
+            insertedPauseIdxs.add(pi)
+          }
+        }
+
+        tableBody.push([
+          game.time + '–' + game.endTime,
+          `${game.opponent.clubName}  ${game.opponent.name}`,
+          `${game.rink}`,
+        ])
+        tableRowTypes.push('game')
+      }
+
+      // Insert any remaining pauses after last game
+      for (let pi = 0; pi < clubPauseEvents.length; pi++) {
+        if (insertedPauseIdxs.has(pi)) continue
+        const pe = clubPauseEvents[pi]
+        tableBody.push([{ content: `${pe.label}  ${pe.startTime}–${pe.endTime}`, colSpan: 3, styles: { halign: 'center' } }])
+        tableRowTypes.push('pause')
+      }
+
+      // Check page space
+      const estimatedHeight = 12 + tableBody.length * 10 + 8
+      if (y + estimatedHeight > pageH - 12) {
+        doc.addPage()
+        y = 14
+      }
+
+      // Team name header
+      doc.setFillColor(...colors.bg)
+      doc.roundedRect(12, y, pageW - 24, 7, 1.5, 1.5, 'F')
+      doc.setTextColor(...colors.text)
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.text(team.name, 16, y + 5)
+      y += 10
+
+      if (tableBody.length === 0) {
+        doc.setFontSize(8)
+        doc.setTextColor(148, 163, 184)
+        doc.text('Inga matcher schemalagda', 16, y + 4)
+        y += 10
+        continue
+      }
+
+      // Opponent color map for cell coloring
+      const opponentClubs = teamGames.map(g => g.opponent.clubName)
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Tid', 'Motståndare', 'Rink']],
+        body: tableBody,
+        theme: 'grid',
+        styles: {
+          fontSize: 8,
+          cellPadding: 3,
+          lineColor: [203, 213, 225],
+          lineWidth: 0.3,
+          textColor: [30, 41, 59],
+        },
+        headStyles: {
+          fillColor: [...colors.accent],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 9,
+        },
+        columnStyles: {
+          0: { cellWidth: 28, halign: 'center', fontStyle: 'bold' },
+          2: { cellWidth: 18, halign: 'center' },
+        },
+        didParseCell(data) {
+          if (data.section === 'body') {
+            if (tableRowTypes[data.row.index] === 'pause') {
+              data.cell.styles.fillColor = [255, 251, 235]
+              data.cell.styles.textColor = [120, 80, 10]
+              data.cell.styles.fontStyle = 'bold'
+            }
+          }
+        },
+      })
+
+      y = doc.lastAutoTable.finalY + 8
+    }
+
+    // --- Footer ---
+    const totalPages = doc.internal.getNumberOfPages()
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i)
+      doc.setFillColor(241, 245, 249)
+      doc.rect(0, pageH - 8, pageW, 8, 'F')
+      doc.setFontSize(6.5)
+      doc.setTextColor(148, 163, 184)
+      doc.text('Genererat med Spelschema', 14, pageH - 3)
+      doc.text(`Sida ${i} av ${totalPages}`, pageW - 14, pageH - 3, { align: 'right' })
+    }
+
+    const safeName = targetClub.name.replace(/[^a-zA-Z0-9\u00C0-\u024F -]/g, '').trim()
+    doc.save(`${safeName}.pdf`)
+  }
+
+  return { exportPdf, exportClubPdf }
 }
