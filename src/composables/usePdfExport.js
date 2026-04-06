@@ -272,26 +272,46 @@ export function usePdfExport() {
       },
     })
 
-    // --- Non-recurring pause tables ---
+    // --- Non-recurring pause tables (grouped by label) ---
+    const pauseGroups = new Map()
     for (const pauseInfo of nonRecurringPauses) {
+      const key = pauseInfo.label
+      if (!pauseGroups.has(key)) pauseGroups.set(key, [])
+      pauseGroups.get(key).push(pauseInfo)
+    }
+
+    for (const [label, groupPauses] of pauseGroups) {
       let y = doc.lastAutoTable.finalY + 8
       if (y + 30 > pageH) {
         doc.addPage()
         y = 14
       }
 
-      // Pause title
+      // Group title
+      const firstTime = groupPauses[0].startTime
+      const lastPause = groupPauses[groupPauses.length - 1]
+      const lastTime = lastPause.endTime
       doc.setFillColor(255, 251, 235)
       doc.roundedRect(12, y, 80, 7, 1.5, 1.5, 'F')
       doc.setTextColor(120, 80, 10)
       doc.setFontSize(9)
       doc.setFont('helvetica', 'bold')
-      doc.text(`${pauseInfo.label.toUpperCase()}  ${pauseInfo.startTime}–${pauseInfo.endTime}`, 16, y + 5)
+      doc.text(`${label.toUpperCase()}  ${firstTime}–${lastTime}`, 16, y + 5)
+
+      // Combine all clubs from all slots in this group into one table
+      const tableBody = []
+      const clubColors = []
+      for (const pauseInfo of groupPauses) {
+        for (const c of pauseInfo.clubs) {
+          tableBody.push([c.name, c.startTime, c.endTime])
+          clubColors.push(clubColorMap[c.name])
+        }
+      }
 
       autoTable(doc, {
         startY: y + 10,
         head: [['Klubb', 'Start', 'Slut']],
-        body: pauseInfo.clubs.map(c => [c.name, c.startTime, c.endTime]),
+        body: tableBody,
         theme: 'grid',
         styles: {
           fontSize: 8,
@@ -312,8 +332,7 @@ export function usePdfExport() {
         },
         didParseCell(data) {
           if (data.section === 'body' && data.column.index === 0) {
-            const clubName = pauseInfo.clubs[data.row.index]?.name
-            const colors = clubColorMap[clubName]
+            const colors = clubColors[data.row.index]
             if (colors) {
               data.cell.styles.fillColor = colors.bg
               data.cell.styles.textColor = colors.text
