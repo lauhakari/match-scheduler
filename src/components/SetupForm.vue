@@ -222,10 +222,10 @@ const CLUB_COLORS = [
           </fieldset>
 
           <!-- Pause durations (shown only when pauses exist) -->
-          <div v-if="settings.pauses.length > 0" class="mt-3 pt-3 border-t border-slate-700/50">
+          <div v-if="settings.pauses.some(p => !p.recurring)" class="mt-3 pt-3 border-t border-slate-700/50">
             <p class="text-xs text-slate-600 uppercase tracking-widest mb-2">Pauser</p>
             <div
-              v-for="pause in settings.pauses"
+              v-for="pause in settings.pauses.filter(p => !p.recurring)"
               :key="pause.id"
               class="flex items-center gap-3 mb-2"
             >
