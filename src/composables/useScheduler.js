@@ -273,11 +273,14 @@ export function useScheduler() {
     const gamesPlayed = {}
     const lastGameEnd = {} // minute when team's last game ends
     const clubsPlayed = {} // track which clubs each team has faced
+    const firstSlotTeams = new Set() // teams that play in the first time slot
+    const clusterClubs = new Set(clubs.filter(c => c.cluster).map(c => c.name))
     teams.forEach(t => {
       gamesPlayed[t.id] = 0
       lastGameEnd[t.id] = -Infinity
       clubsPlayed[t.id] = new Set()
     })
+    const lastTimeSlot = timeSlots[timeSlots.length - 1]
 
     // Precompute blocked intervals per club: { clubName: [[startMin, endMin], ...] }
     // Keyed by club.name — must match the clubName set on each team at construction time above
@@ -340,23 +343,40 @@ export function useScheduler() {
 
       // Shuffle matchups for variety, then sort by priority:
       // 1. Teams with fewer games first
-      // 2. Prefer matchups that introduce new club opponents (club diversity)
+      // 2. Prefer clustered clubs' teams that played recently
+      // Club diversity and first/last avoidance are handled as multi-pass constraints below
+      const isLastSlot = slotStart === lastTimeSlot
       const shuffled = shuffle(allMatchups)
       shuffled.sort((a, b) => {
         const aMin = Math.min(gamesPlayed[a[0].id], gamesPlayed[a[1].id])
         const bMin = Math.min(gamesPlayed[b[0].id], gamesPlayed[b[1].id])
         if (aMin !== bMin) return aMin - bMin
 
-        // Count new club encounters (0-2): higher is better (sort descending)
-        const aNew = (clubsPlayed[a[0].id].has(a[1].clubName) ? 0 : 1)
-                   + (clubsPlayed[a[1].id].has(a[0].clubName) ? 0 : 1)
-        const bNew = (clubsPlayed[b[0].id].has(b[1].clubName) ? 0 : 1)
-                   + (clubsPlayed[b[1].id].has(b[0].clubName) ? 0 : 1)
-        return bNew - aNew
+        // Boost clustered teams that played recently (prefer shorter gaps)
+        const aCluster = clusterClubs.has(a[0].clubName) || clusterClubs.has(a[1].clubName)
+        const bCluster = clusterClubs.has(b[0].clubName) || clusterClubs.has(b[1].clubName)
+        if (aCluster !== bCluster) {
+          const aStarted = aCluster && (lastGameEnd[a[0].id] > -Infinity || lastGameEnd[a[1].id] > -Infinity)
+          const bStarted = bCluster && (lastGameEnd[b[0].id] > -Infinity || lastGameEnd[b[1].id] > -Infinity)
+          if (aStarted && !bStarted) return -1
+          if (!aStarted && bStarted) return 1
+        }
+
+        return 0
       })
 
       for (let rink = 0; rink < numRinks; rink++) {
         let assigned = false
+
+        // Multi-pass assignment with progressive relaxation:
+        // Pass 0: new club opponents only + avoid first/last overlap
+        // Pass 1: new club opponents only (relax first/last)
+        // Pass 2: any opponent + avoid first/last overlap
+        // Pass 3: any opponent (fully relaxed)
+        const maxPasses = isLastSlot ? 4 : 2
+        for (let pass = 0; pass < maxPasses && !assigned; pass++) {
+          const requireNewClub = pass < 2
+          const avoidFirstLast = isLastSlot && (pass % 2 === 0)
 
         for (const [home, away] of shuffled) {
           // Skip if this pairing has already been scheduled
@@ -369,6 +389,14 @@ export function useScheduler() {
           // Skip if either team exceeded max games
           if (gamesPlayed[home.id] >= settings.maxGames) continue
           if (gamesPlayed[away.id] >= settings.maxGames) continue
+
+          // Prefer new club opponents: skip if both teams already played against this club
+          if (requireNewClub
+            && clubsPlayed[home.id].has(away.clubName)
+            && clubsPlayed[away.id].has(home.clubName)) continue
+
+          // Avoid first+last slot overlap
+          if (avoidFirstLast && (firstSlotTeams.has(home.id) || firstSlotTeams.has(away.id))) continue
 
           // Check rest constraint
           const homeRest = slotStart - lastGameEnd[home.id]
@@ -393,11 +421,16 @@ export function useScheduler() {
           gamesPlayed[away.id]++
           clubsPlayed[home.id].add(away.clubName)
           clubsPlayed[away.id].add(home.clubName)
+          if (slotStart === timeSlots[0]) {
+            firstSlotTeams.add(home.id)
+            firstSlotTeams.add(away.id)
+          }
           lastGameEnd[home.id] = slotStart + settings.matchLength
           lastGameEnd[away.id] = slotStart + settings.matchLength
           assigned = true
           break
         }
+        } // end passes loop
 
         if (!assigned) {
           matches.push({ rink: rink + 1, home: null, away: null })
