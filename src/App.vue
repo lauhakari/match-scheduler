@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import SetupForm from './components/SetupForm.vue'
 import ScheduleGrid from './components/ScheduleGrid.vue'
 import ScheduleStats from './components/ScheduleStats.vue'
@@ -8,7 +8,7 @@ import { usePdfExport } from './composables/usePdfExport.js'
 import { useShareUrl } from './composables/useShareUrl.js'
 
 const { schedule, warnings, generate } = useScheduler()
-const { exportPdf } = usePdfExport()
+const { exportPdf, exportClubPdf } = usePdfExport()
 const { loadFromUrl, shareSchedule } = useShareUrl()
 
 const currentSettings = ref(null)
@@ -17,8 +17,11 @@ const scheduleSection = ref(null)
 const includeSummaryInPdf = ref(true)
 const shareStatus = ref(null)
 const isSharedView = ref(false)
+const showClubPdfMenu = ref(false)
 
+function closeMenus() { showClubPdfMenu.value = false }
 onMounted(async () => {
+  document.addEventListener('click', closeMenus)
   const data = loadFromUrl()
   if (data) {
     currentClubs.value = data.c
@@ -29,6 +32,7 @@ onMounted(async () => {
     scheduleSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 })
+onUnmounted(() => { document.removeEventListener('click', closeMenus) })
 
 function handleCreateNew() {
   window.open(window.location.origin + window.location.pathname, '_blank')
@@ -68,6 +72,22 @@ function handleExportPdf() {
   if (schedule.value && currentSettings.value && currentClubs.value) {
     exportPdf(schedule.value, currentSettings.value, currentClubs.value, { includeSummary: includeSummaryInPdf.value })
   }
+}
+
+function handleExportClubPdf(club) {
+  if (schedule.value && currentSettings.value && currentClubs.value) {
+    exportClubPdf(schedule.value, currentSettings.value, currentClubs.value, club)
+  }
+  showClubPdfMenu.value = false
+}
+
+function handleExportAllClubPdfs() {
+  if (schedule.value && currentSettings.value && currentClubs.value) {
+    for (const club of currentClubs.value) {
+      exportClubPdf(schedule.value, currentSettings.value, currentClubs.value, club)
+    }
+  }
+  showClubPdfMenu.value = false
 }
 </script>
 
@@ -133,6 +153,34 @@ function handleExportPdf() {
             >
               <span class="mr-1.5">&#8615;</span> Exportera PDF
             </button>
+            <div class="relative">
+              <button
+                @click.stop="showClubPdfMenu = !showClubPdfMenu"
+                class="px-5 py-2.5 text-sm font-medium bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/25 hover:border-emerald-500/40 rounded-lg transition-all cursor-pointer"
+              >
+                <span class="mr-1.5">&#8615;</span> Klubb-PDF
+              </button>
+              <div
+                v-if="showClubPdfMenu"
+                @click.stop
+                class="absolute right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-10 min-w-[180px] py-1"
+              >
+                <button
+                  @click="handleExportAllClubPdfs"
+                  class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 cursor-pointer border-b border-slate-700"
+                >
+                  Alla klubbar
+                </button>
+                <button
+                  v-for="club in currentClubs"
+                  :key="club.name"
+                  @click="handleExportClubPdf(club)"
+                  class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 cursor-pointer"
+                >
+                  {{ club.name }}
+                </button>
+              </div>
+            </div>
             <button
               v-if="!isSharedView"
               @click="handleShare"
