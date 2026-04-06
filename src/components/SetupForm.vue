@@ -57,6 +57,24 @@ function removeClub(index) {
   clubs.value.splice(index, 1)
 }
 
+const dragClubIndex = ref(null)
+
+function onClubDragStart(index) {
+  dragClubIndex.value = index
+}
+
+function onClubDragOver(e, index) {
+  e.preventDefault()
+  if (dragClubIndex.value === null || dragClubIndex.value === index) return
+  const dragged = clubs.value.splice(dragClubIndex.value, 1)[0]
+  clubs.value.splice(index, 0, dragged)
+  dragClubIndex.value = index
+}
+
+function onClubDragEnd() {
+  dragClubIndex.value = null
+}
+
 function addTeam(clubIndex) {
   const club = clubs.value[clubIndex]
   club.teams.push({ name: `Lag ${club.teams.length + 1}` })
@@ -167,8 +185,12 @@ const CLUB_COLORS = [
         <div
           v-for="(club, ci) in clubs"
           :key="ci"
-          class="bg-gradient-to-br rounded-xl border p-5 animate-fade-in-up"
-          :class="CLUB_COLORS[ci % CLUB_COLORS.length]"
+          draggable="true"
+          @dragstart="onClubDragStart(ci)"
+          @dragover="onClubDragOver($event, ci)"
+          @dragend="onClubDragEnd"
+          class="bg-gradient-to-br rounded-xl border p-5 animate-fade-in-up cursor-grab active:cursor-grabbing"
+          :class="[CLUB_COLORS[ci % CLUB_COLORS.length], dragClubIndex === ci ? 'opacity-50' : '']"
           :style="{ animationDelay: `${ci * 60}ms` }"
         >
           <div class="flex items-center gap-3 mb-4">
@@ -182,6 +204,20 @@ const CLUB_COLORS = [
               class="flex-1 bg-slate-900/60 border border-slate-700/60 rounded-lg px-3 py-2 text-white font-semibold text-sm focus:outline-none focus:border-ice-500/50 focus:ring-1 focus:ring-ice-500/20 transition-all"
               placeholder="Klubbnamn"
             />
+            <label
+              :for="`club-cluster-${ci}`"
+              class="flex items-center gap-1 cursor-pointer group"
+              title="Samla lagets matcher närmare i tid (för lag som reser långt)"
+            >
+              <input
+                :id="`club-cluster-${ci}`"
+                :name="`club-cluster-${ci}`"
+                v-model="club.cluster"
+                type="checkbox"
+                class="accent-ice-500 w-3.5 h-3.5"
+              />
+              <span class="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Samla</span>
+            </label>
             <button
               v-if="clubs.length > 1"
               type="button"

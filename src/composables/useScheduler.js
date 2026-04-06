@@ -42,13 +42,11 @@ export function groupFoodBreak(foodBreak, clubs) {
   const startMin = timeToMinutes(foodBreak.startTime)
   const maxTeams = foodBreak.maxTeamsPerSlot || Infinity
 
-  // Sort clubs by team count descending for better bin-packing
-  const sorted = [...clubs]
-    .map(c => ({ name: c.name, teamCount: c.teams.length }))
-    .sort((a, b) => b.teamCount - a.teamCount)
+  // Use club list order — user controls lunch slot assignment via club ordering
+  const ordered = clubs.map(c => ({ name: c.name, teamCount: c.teams.length }))
 
   const slots = []
-  for (const club of sorted) {
+  for (const club of ordered) {
     let placed = false
     for (const slot of slots) {
       const currentTeams = slot.clubNames.reduce(
