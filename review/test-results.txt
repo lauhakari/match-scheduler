@@ -1,0 +1,45 @@
+(node:92493) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+PASS 200 seeded tournaments preserve time, rest, unique opponents, rink conflicts and counts
+PASS Fewer than two teams rejects generation
+PASS Internal games off rejects one-club tournament
+PASS Internal games on permits one-club tournament
+PASS Too-short tournament rejects generation
+FAIL Default feasible tournament gives each team two games: [["A::1",1],["A::2",2],["B::1",1],["B::2",2]]
+PASS Fixed universal pause blocks games
+PASS Time recurrence expands at requested interval
+PASS Slot recurrence inserts breaks after two rounds
+PASS Staggered pauses block the correct clubs
+PASS Food breaks block participating clubs
+FAIL Food capacity is respected when one club exceeds it: The expression evaluated to a falsy value:
+
+  assert(slots.every(s => s.clubNames.reduce((n, name) => n + entries.find(c => c.name === name).teams.length, 0) <= 6))
+
+FAIL Duplicate team names produce distinct identities or reject generation: Expected values to be strictly equal:
+
+3 !== 4
+
+FAIL Form edits preserve generated team snapshot: Expected values to be strictly equal:
+
+'Changed' !== 'Lag 1'
+
+FAIL Form edits preserve generated pause snapshot: Expected values to be strictly equal:
+
+1 !== 0
+
+PASS Valid share payload round-trips unchanged
+FAIL Malformed share payload is rejected: Expected values to be strictly equal:
+[32m+ actual[39m [31m- expected[39m
+
+[32m+[39m {
+[32m+[39m   c: [],
+[32m+[39m   g: {},
+[32m+[39m   s: {}
+[32m+[39m }
+[31m-[39m null
+
+PASS Corrupt share encoding is rejected
+PASS Full and club PDF exporters produce real PDF bytes
+FAIL Zero slot duration terminates instead of hanging: generation exceeded one second (non-advancing loop)
+
+13 passed; 7 failed. Seed starts at 42. Failures intentionally document review findings.
