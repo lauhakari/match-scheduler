@@ -1,6 +1,7 @@
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
+import { jsPDF } from 'jspdf'
+import { autoTable } from 'jspdf-autotable'
 import { expandPauses } from './useScheduler.js'
+import { getTeamId } from '../lib/tournament.js'
 
 // Club palette — muted but distinct, print-friendly
 const CLUB_PALETTE = [
@@ -488,7 +489,7 @@ export function usePdfExport() {
     let y = 30
 
     for (const team of targetClub.teams) {
-      const teamId = `${targetClub.name}::${team.name}`
+      const teamId = getTeamId(targetClub, team)
 
       // Collect this team's games
       const teamGames = []

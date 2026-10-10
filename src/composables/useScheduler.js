@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { validateTournament, snapshotTournament, getTeamId } from '../lib/tournament.js'
 
 function timeToMinutes(timeStr) {
   const [h, m] = timeStr.split(':').map(Number)
@@ -41,6 +42,9 @@ export function expandPauses(pauses, endMinutes) {
 export function groupFoodBreak(foodBreak, clubs) {
   const startMin = timeToMinutes(foodBreak.startTime)
   const maxTeams = foodBreak.maxTeamsPerSlot || Infinity
+  if (clubs.some(club => club.teams.length > maxTeams)) {
+    throw new Error('En klubb har fler lag än matpausens kapacitet.')
+  }
 
   // Use club list order — user controls lunch slot assignment via club ordering
   const ordered = clubs.map(c => ({ name: c.name, teamCount: c.teams.length }))
@@ -98,11 +102,18 @@ export function useScheduler() {
   const warnings = ref([])
 
   function generate(settings, clubs) {
+    const errors = validateTournament(settings, clubs)
+    if (errors.length) {
+      warnings.value = errors
+      schedule.value = null
+      return
+    }
+    ;({ settings, clubs } = snapshotTournament(settings, clubs))
     const teams = []
     clubs.forEach(club => {
       club.teams.forEach(team => {
         teams.push({
-          id: `${club.name}::${team.name}`,
+          id: getTeamId(club, team),
           name: team.name,
           clubName: club.name,
         })
@@ -156,9 +167,9 @@ export function useScheduler() {
           return club.pauseDurations[uLookupId]
         }
         return pause.defaultDuration || 0
-      }).filter(d => d > 0)
+      })
 
-      if (clubDurations.length === 0) continue
+      if (clubDurations.some(d => d <= 0)) continue
 
       const maxDuration = Math.max(...clubDurations)
       const windowDuration = pause.windowDuration || 0
@@ -170,7 +181,7 @@ export function useScheduler() {
 
       if (effectiveSpread === 0) {
         // All clubs break at the same time — skip these slots
-        universalPauses.push([pStart, pStart + maxDuration])
+        universalPauses.push([pStart, pStart + Math.min(...clubDurations)])
       }
     }
 
@@ -235,13 +246,6 @@ export function useScheduler() {
       const slotEnd = current + settings.matchLength
       const overlapping = universalPauses.find(([pStart, pEnd]) => current < pEnd && slotEnd > pStart)
       if (overlapping) {
-        // If the overlap is caused by the trailing break, absorb it
-        const withoutBreak = current - settings.breakLength
-        if (slotCount > 0 && withoutBreak + settings.matchLength <= overlapping[0]) {
-          // The game fits if we remove the break — add it, then skip to pause end
-          timeSlots.push(withoutBreak)
-          slotCount++
-        }
         current = overlapping[1]
         continue
       }
@@ -268,9 +272,9 @@ export function useScheduler() {
     }
 
     // Track per-team stats
-    const gamesPlayed = {}
-    const lastGameEnd = {} // minute when team's last game ends
-    const clubsPlayed = {} // track which clubs each team has faced
+    const gamesPlayed = Object.create(null)
+    const lastGameEnd = Object.create(null) // minute when team's last game ends
+    const clubsPlayed = Object.create(null) // track which clubs each team has faced
     const firstSlotTeams = new Set() // teams that play in the first time slot
     const clusterClubs = new Set(clubs.filter(c => c.cluster).map(c => c.name))
     teams.forEach(t => {
@@ -282,7 +286,7 @@ export function useScheduler() {
 
     // Precompute blocked intervals per club: { clubName: [[startMin, endMin], ...] }
     // Keyed by club.name — must match the clubName set on each team at construction time above
-    const clubBlocked = {}
+    const clubBlocked = Object.create(null)
     clubs.forEach(club => { clubBlocked[club.name] = [] })
 
     // Add food break blocked intervals per club
@@ -373,12 +377,12 @@ export function useScheduler() {
         // Pass 3: any opponent (fully relaxed)
         const maxPasses = isLastSlot ? 4 : 2
         for (let pass = 0; pass < maxPasses && !assigned; pass++) {
-          const requireNewClub = pass < 2
+          const requireNewClub = isLastSlot ? pass < 2 : pass === 0
           const avoidFirstLast = isLastSlot && (pass % 2 === 0)
 
         for (const [home, away] of shuffled) {
           // Skip if this pairing has already been scheduled
-          const pairKey = [home.id, away.id].sort().join('::vs::')
+          const pairKey = JSON.stringify([home.id, away.id].sort())
           if (usedMatchups.has(pairKey)) continue
 
           // Skip if either team is busy this slot
