@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.js",
+    "dev:pages": "wrangler pages dev dist --ip 127.0.0.1 --port 8788",
+    "db:local": "wrangler d1 migrations apply game-scheduler --local"
   },
   "dependencies": {
     "jspdf": "^4.2.0",
@@ -17,7 +20,10 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
     "@vitejs/plugin-vue": "^6.0.4",
+    "@vue/test-utils": "^2.5.1",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4.2.1",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "wrangler": "^4.149.0"
   }
 }

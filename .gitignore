@@ -2,3 +2,11 @@ node_modules/
 dist/
 .superpowers/
 docs/superpowers/
+.wrangler/
+tests/.cache/
+.DS_Store
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+!migrations/*.sql
