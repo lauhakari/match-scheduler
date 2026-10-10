@@ -1,4 +1,6 @@
-import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string'
+import lz from 'lz-string'
+import { MAX_PAYLOAD_BYTES, validatePayload } from '../lib/tournament.js'
+const { compressToEncodedURIComponent, decompressFromEncodedURIComponent } = lz
 
 export function useShareUrl() {
   function generateShareUrl(clubs, settings, schedule) {
@@ -13,10 +15,11 @@ export function useShareUrl() {
 
     try {
       const compressed = hash.slice(3)
+      if (compressed.length > 8192) return null
       const json = decompressFromEncodedURIComponent(compressed)
-      if (!json) return null
+      if (!json || new TextEncoder().encode(json).length > MAX_PAYLOAD_BYTES) return null
       const data = JSON.parse(json)
-      if (!data.c || !data.s || !data.g) return null
+      if (!validatePayload(data)) return null
       return data
     } catch {
       return null
