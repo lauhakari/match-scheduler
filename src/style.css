@@ -48,6 +48,22 @@ body {
   min-height: 100vh;
 }
 
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+  outline: 2px solid var(--color-ice-400);
+  outline-offset: 3px;
+}
+
+input.sr-only:focus-visible + div {
+  outline: 2px solid var(--color-ice-400);
+  outline-offset: 3px;
+}
+
+input, select { min-width: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
 /* Noise overlay for texture */
 body::before {
   content: '';
