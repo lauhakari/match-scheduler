@@ -3,6 +3,7 @@ import { MAX_PAYLOAD_BYTES, validatePayload } from '../../../src/lib/tournament.
 const json = (data, status = 200, extra = {}) => Response.json(data, { status, headers: {
   'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra,
 } })
+const RETENTION_MS = 180 * 86_400_000
 const validId = value => /^[a-f0-9]{32}$/.test(value)
 const validToken = value => /^[a-f0-9]{64}$/.test(value)
 const hex = bytes => [...bytes].map(b => b.toString(16).padStart(2, '0')).join('')
@@ -46,7 +47,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
   if ((method === 'POST' && publicId) || (method !== 'POST' && !publicId)) return json({ error: 'Ogiltig adress.' }, 404)
   if (!['GET', 'POST', 'PUT', 'DELETE'].includes(method)) return json({ error: 'Metoden stöds inte.' }, 405, { Allow: 'GET, POST, PUT, DELETE' })
   if (method === 'GET') {
-    const row = await env.DB.prepare('SELECT payload, version, updated_at FROM schedules WHERE id = ?').bind(publicId).first()
+    const row = await env.DB.prepare('SELECT payload, version, updated_at FROM schedules WHERE id = ? AND updated_at >= ?').bind(publicId, Date.now() - RETENTION_MS).first()
     if (!row) return json({ error: 'Schemat hittades inte.' }, 404)
     return json({ id: publicId, data: JSON.parse(row.payload), version: row.version, updatedAt: row.updated_at })
   }
@@ -57,12 +58,13 @@ export async function onRequest({ request, env, params, waitUntil }) {
     const token = request.headers.get('Authorization')?.replace(/^Bearer /, '') || ''
     if (!validToken(token)) return json({ error: 'Redigeringslänken är ogiltig.' }, 403)
     tokenHash = await hash(token)
-    const row = await env.DB.prepare('SELECT version FROM schedules WHERE id = ? AND edit_token_hash = ?').bind(publicId, tokenHash).first()
+    const row = await env.DB.prepare('SELECT version FROM schedules WHERE id = ? AND edit_token_hash = ? AND updated_at >= ?').bind(publicId, tokenHash, Date.now() - RETENTION_MS).first()
     if (!row) return json({ error: 'Redigeringslänken är ogiltig.' }, 403)
   }
   const now = Date.now()
   if (!await admit(env.DB, request.headers.get('CF-Connecting-IP') || 'local', now)) return json({ error: 'För många sparningar. Försök igen om en timme.' }, 429, { 'Retry-After': '3600' })
   waitUntil(env.DB.prepare('DELETE FROM save_limits WHERE bucket < ?').bind(Math.floor(now / 3_600_000) - 1).run())
+  waitUntil(env.DB.prepare('DELETE FROM schedules WHERE updated_at < ?').bind(now - RETENTION_MS).run())
   if (method === 'DELETE') {
     await env.DB.prepare('DELETE FROM schedules WHERE id = ? AND edit_token_hash = ?').bind(publicId, tokenHash).run()
     return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } })

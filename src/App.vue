@@ -42,6 +42,16 @@ function persistResult() {
   try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ c: currentClubs.value, s: currentSettings.value, g: schedule.value, w: warnings.value })) }
   catch { notice.value = 'Schemat kunde inte sparas i webbläsaren. Exportera en PDF för att behålla det.' }
 }
+const editTokenKey = id => `game-scheduler-edit:${id}`
+function readEditToken(id) {
+  try { return localStorage.getItem(editTokenKey(id))?.match(/^[a-f0-9]{64}$/)?.[0] ?? null } catch { return null }
+}
+function storeEditToken(id, token) {
+  try { localStorage.setItem(editTokenKey(id), token) } catch {}
+}
+function forgetEditToken(id) {
+  try { localStorage.removeItem(editTokenKey(id)) } catch {}
+}
 async function loadSchedule() {
   const sequence = ++loadSequence
   const pathname = window.location.pathname
@@ -63,7 +73,12 @@ async function loadSchedule() {
     if (match) {
       const result = await savedApi.load(match[1])
       if (sequence !== loadSequence) return
-      const token = fragment.match(/^#edit=([a-f0-9]{64})$/)?.[1]
+      const linkToken = fragment.match(/^#edit=([a-f0-9]{64})$/)?.[1]
+      if (linkToken) {
+        storeEditToken(result.id, linkToken)
+        history.replaceState(null, '', `/s/${result.id}`)
+      }
+      const token = linkToken || readEditToken(result.id)
       applyData(result.data)
       isSharedView.value = !token
       if (token) {
@@ -119,7 +134,8 @@ async function handleShare() {
     saved.value = { ...saved.value, ...result }
     savedLinks.value = savedApi.links(saved.value)
     unsaved.value = false
-    history.replaceState(null, '', `/s/${saved.value.id}#edit=${saved.value.editToken}`)
+    storeEditToken(saved.value.id, saved.value.editToken)
+    history.replaceState(null, '', `/s/${saved.value.id}`)
     notice.value = 'Schemat är sparat. Dela visningslänken och behåll redigeringslänken privat.'
   } catch (error) { if (sequence === loadSequence) notice.value = error.message }
   finally { if (sequence === loadSequence) saving.value = false }
@@ -132,6 +148,7 @@ async function handleDelete() {
   try {
     await savedApi.remove(saved.value)
     if (sequence !== loadSequence) return
+    forgetEditToken(saved.value.id)
     saved.value = null
     savedLinks.value = null
     unsaved.value = true
@@ -311,7 +328,7 @@ async function handleExportAllClubPdfs() {
             <input id="edit-link" :value="savedLinks.editUrl" readonly class="min-w-0 flex-1 rounded bg-slate-800 p-2 text-sm" />
             <button @click="copyLink(savedLinks.editUrl)" class="rounded bg-slate-700 px-3 py-2 text-sm">Kopiera redigeringslänk</button>
           </div>
-          <p class="text-xs text-slate-400">Alla med visningslänken kan läsa schemat. Redigeringslänken ger rätt att ändra det. Ändra inställningarna, generera schemat och spara för att uppdatera deltagarnas länk.</p>
+          <p class="text-xs text-slate-400">Alla med visningslänken kan läsa schemat. Redigeringslänken ger rätt att ändra det; den här webbläsaren kommer ihåg den åt dig. Sparade scheman tas bort 180 dagar efter senaste ändring. Ändra inställningarna, generera schemat och spara för att uppdatera deltagarnas länk.</p>
           <button @click="handleDelete" :disabled="saving" class="text-sm text-rose-300 underline">Ta bort sparat schema</button>
         </div>
 

@@ -10,3 +10,4 @@ tests/.cache/
 .dev.vars
 .dev.vars.*
 !migrations/*.sql
+review/

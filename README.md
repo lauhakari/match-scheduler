@@ -29,7 +29,7 @@ Open http://127.0.0.1:8788. This uses local SQLite files under `.wrangler/`, not
 
 Generate, then choose **Spara & dela**. Copy the public viewing link for participants and keep the separate private editing link. Regenerating and saving through the edit link updates the same public URL. Changing form fields alone does not change generated or published fixtures.
 
-Anyone with the public link can view. Anyone with the edit link can update or delete. There are no accounts or edit-link recovery; treat the edit link like a password. Deletion removes the online copy and keeps a local draft. Concurrent edits with stale versions are rejected; refresh before retrying.
+Anyone with the public link can view. Anyone with the edit link can update or delete. There are no accounts or edit-link recovery; treat the edit link like a password. The browser that saves or opens an edit link remembers it, so the address bar only ever shows the public link. Saved schedules are deleted 180 days after their last save. Deletion removes the online copy and keeps a local draft. Concurrent edits with stale versions are rejected; refresh before retrying.
 
 Club/settings drafts and the latest generated result stay in local storage. Existing compressed `#s=` links remain readable when valid; new sharing uses the database.
 

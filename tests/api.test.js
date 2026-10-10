@@ -150,3 +150,14 @@ test('cross-origin writes are rejected before any database changes', async t => 
   assert.equal(sqlite.prepare('SELECT count(*) AS count FROM schedules').get().count, 1)
   assert.equal((await request('POST', [], { data }, { Origin: 'https://tournament.test' })).status, 201)
 })
+
+test('schedules expire 180 days after their last save', async t => {
+  const { sqlite, data, request, create } = fixture(t)
+  const saved = await create()
+  const auth = { Authorization: `Bearer ${saved.editToken}`, Origin: 'https://tournament.test' }
+  sqlite.prepare('UPDATE schedules SET updated_at = ?').run(Date.now() - 181 * 86_400_000)
+  assert.equal((await request('GET', [saved.id])).status, 404)
+  assert.equal((await request('PUT', [saved.id], { data, version: 1 }, auth)).status, 403)
+  await create()
+  assert.equal(sqlite.prepare('SELECT count(*) AS count FROM schedules WHERE id = ?').get(saved.id).count, 0)
+})
