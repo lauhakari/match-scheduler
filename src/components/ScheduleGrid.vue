@@ -101,14 +101,12 @@ const rows = computed(() => {
 })
 
 const CLUB_COLORS = [
-  { bg: 'bg-ice-500/15', text: 'text-ice-300', border: 'border-ice-500/25', dot: 'bg-ice-400' },
-  { bg: 'bg-amber-400/15', text: 'text-amber-300', border: 'border-amber-400/25', dot: 'bg-amber-400' },
-  { bg: 'bg-emerald-400/15', text: 'text-emerald-300', border: 'border-emerald-400/25', dot: 'bg-emerald-400' },
-  { bg: 'bg-rose-400/15', text: 'text-rose-300', border: 'border-rose-400/25', dot: 'bg-rose-400' },
-  { bg: 'bg-purple-400/15', text: 'text-purple-300', border: 'border-purple-400/25', dot: 'bg-purple-400' },
-  { bg: 'bg-cyan-400/15', text: 'text-cyan-300', border: 'border-cyan-400/25', dot: 'bg-cyan-400' },
-  { bg: 'bg-orange-400/15', text: 'text-orange-300', border: 'border-orange-400/25', dot: 'bg-orange-400' },
-  { bg: 'bg-pink-400/15', text: 'text-pink-300', border: 'border-pink-400/25', dot: 'bg-pink-400' },
+  { color: '#3159e8', bg: '#edf1ff' },
+  { color: '#227d72', bg: '#eaf4ef' },
+  { color: '#b9792d', bg: '#fff7e9' },
+  { color: '#975273', bg: '#fff0f3' },
+  { color: '#745ea3', bg: '#f3effa' },
+  { color: '#397e99', bg: '#edf7fb' },
 ]
 
 const clubColorMap = computed(() => {
@@ -131,86 +129,53 @@ const rinkColumns = computed(() => {
 </script>
 
 <template>
-  <div class="animate-fade-in-up">
-    <div class="overflow-x-auto rounded-xl border border-slate-800">
-      <table class="w-full border-collapse">
-        <thead>
-          <tr class="bg-slate-900/80">
-            <th class="px-4 py-3 text-left font-display text-sm tracking-widest uppercase text-slate-500 border-b border-slate-800 w-32">
-              Tid
-            </th>
-            <th
-              v-for="rink in rinkColumns"
-              :key="rink"
-              class="px-4 py-3 text-center font-display text-sm tracking-widest uppercase text-slate-500 border-b border-slate-800 border-l border-slate-800"
-            >
-              Rink {{ rink }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="(row, ri) in rows" :key="ri">
-            <!-- Pause separator row -->
-            <tr v-if="row.type === 'pause'" class="bg-amber-400/5 border-y border-amber-400/20">
-              <td :colspan="rinkColumns.length + 1" class="px-4 py-2.5">
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
-                  <span class="text-xs font-display tracking-widest uppercase text-amber-300/80">{{ row.label }}</span>
-                  <span class="text-xs text-slate-600">
-                    {{ row.startTime }}–{{ row.windowEnd || row.endTime }}
+  <div class="table-scroll">
+    <table class="schedule-table">
+      <thead>
+        <tr>
+          <th>Tid</th>
+          <th v-for="rink in rinkColumns" :key="rink">Rink {{ rink }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template v-for="(row, ri) in rows" :key="ri">
+          <tr v-if="row.type === 'pause'" class="pause-row">
+            <td :colspan="rinkColumns.length + 1">
+              <div class="pause-content">
+                <span class="pause-label">{{ row.label }}</span>
+                <span>{{ row.startTime }}–{{ row.windowEnd || row.endTime }}</span>
+                <template v-if="row.showClubTimes">
+                  <span v-for="club in row.clubs" :key="club.name" class="pause-club">
+                    {{ club.name }} {{ club.startTime }}–{{ club.endTime }}
                   </span>
-                  <template v-if="row.showClubTimes">
-                    <span class="text-slate-700 text-xs">·</span>
-                    <span
-                      v-for="club in row.clubs"
-                      :key="club.name"
-                      class="text-xs text-slate-500"
-                    >{{ club.name }} {{ club.startTime }}–{{ club.endTime }}</span>
-                  </template>
-                </div>
-              </td>
-            </tr>
-            <!-- Regular slot row -->
-            <tr
-              v-else
-              class="group transition-colors hover:bg-slate-900/40"
-              :class="ri % 2 === 0 ? 'bg-slate-900/20' : 'bg-transparent'"
-            >
-              <td class="px-4 py-3 border-b border-slate-800/60 align-middle">
-                <div class="font-display text-lg tracking-wider text-white">{{ row.slot.time }}</div>
-                <div class="text-xs text-slate-600">{{ row.slot.endTime }}</div>
-              </td>
-              <td
-                v-for="rink in rinkColumns"
-                :key="rink"
-                class="px-3 py-3 border-b border-slate-800/60 border-l border-slate-800/60 align-middle"
-              >
-                <template v-for="match in row.slot.matches.filter(m => m.rink === rink)" :key="match.rink">
-                  <div v-if="match.home && match.away" class="flex flex-col items-center gap-1">
-                    <div
-                      class="w-full rounded-lg border px-3 py-1.5 text-center text-sm font-medium"
-                      :class="[getTeamColor(match.home.clubName).bg, getTeamColor(match.home.clubName).text, getTeamColor(match.home.clubName).border]"
-                    >
-                      <span class="text-[10px] uppercase tracking-wider opacity-60">{{ match.home.clubName }}</span>
-                      <span class="mx-1.5 opacity-30">|</span>
-                      {{ match.home.name }}
-                    </div>
-                    <span class="text-[10px] text-slate-600 font-display tracking-widest">MOT</span>
-                    <div
-                      class="w-full rounded-lg border px-3 py-1.5 text-center text-sm font-medium"
-                      :class="[getTeamColor(match.away.clubName).bg, getTeamColor(match.away.clubName).text, getTeamColor(match.away.clubName).border]"
-                    >
-                      <span class="text-[10px] uppercase tracking-wider opacity-60">{{ match.away.clubName }}</span>
-                      <span class="mx-1.5 opacity-30">|</span>
-                      {{ match.away.name }}
-                    </div>
-                  </div>
-                  <div v-else class="text-center text-slate-700 text-sm">—</div>
                 </template>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </div>
+              </div>
+            </td>
+          </tr>
+          <tr v-else>
+            <td class="slot-time">
+              <strong>{{ row.slot.time }}</strong>
+              <small>{{ row.slot.endTime }}</small>
+            </td>
+            <td v-for="rink in rinkColumns" :key="rink" class="rink-cell">
+              <template v-for="match in row.slot.matches.filter(m => m.rink === rink)" :key="match.rink">
+                <div v-if="match.home && match.away" class="match-card">
+                  <div class="team-tag" :style="{ '--team-color': getTeamColor(match.home.clubName).color, '--team-bg': getTeamColor(match.home.clubName).bg }">
+                    <span class="team-dot"></span>
+                    <div><small>{{ match.home.clubName }}</small><strong>{{ match.home.name }}</strong></div>
+                  </div>
+                  <span class="match-versus">mot</span>
+                  <div class="team-tag" :style="{ '--team-color': getTeamColor(match.away.clubName).color, '--team-bg': getTeamColor(match.away.clubName).bg }">
+                    <span class="team-dot"></span>
+                    <div><small>{{ match.away.clubName }}</small><strong>{{ match.away.name }}</strong></div>
+                  </div>
+                </div>
+                <div v-else class="empty-slot">—</div>
+              </template>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
   </div>
 </template>
