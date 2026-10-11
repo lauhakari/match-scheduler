@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import SetupForm from './components/SetupForm.vue'
 import ScheduleGrid from './components/ScheduleGrid.vue'
 import ScheduleStats from './components/ScheduleStats.vue'
@@ -27,6 +27,9 @@ const savedLinks = ref(null)
 const unsaved = ref(false)
 const DRAFT_KEY = 'game-scheduler-result'
 let loadSequence = 0
+
+const matchCount = computed(() => schedule.value?.slots.reduce((count, slot) => count + slot.matches.filter(match => match.home).length, 0) || 0)
+const teamCount = computed(() => schedule.value?.teamStats.length || 0)
 
 function closeMenus(event) {
   if (event.type === 'click' || event.key === 'Escape') showClubPdfMenu.value = false
@@ -200,151 +203,79 @@ async function handleExportAllClubPdfs() {
 </script>
 
 <template>
-  <div class="min-h-screen">
-    <!-- Header -->
-    <header class="relative border-b border-slate-800/60 overflow-hidden">
-      <div class="absolute inset-0 bg-gradient-to-r from-ice-600/5 via-transparent to-amber-400/5"></div>
-      <div class="relative max-w-6xl mx-auto px-6 py-8">
-        <div class="flex flex-wrap items-end gap-4">
+  <div class="app-shell">
+    <a href="#main-content" class="skip-link">Hoppa till innehållet</a>
+    <aside class="sidebar">
+      <a href="/" class="brand" aria-label="Spelschema – startsida">
+        <span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><rect x="5" y="4" width="22" height="24" rx="7"/><path d="M5 16h22M16 4v24"/><circle cx="16" cy="16" r="4"/></svg></span>
+        <span>spelschema<span class="brand-period">.</span></span>
+      </a>
+      <div class="sidebar-caption">DIN TURNERING</div>
+      <nav aria-label="Turneringsnavigation" class="sidebar-nav">
+        <a v-if="!isSharedView" href="#clubs-heading" class="nav-item is-current">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>
+          Planera turneringen <span class="nav-index">01</span>
+        </a>
+        <a v-if="schedule" href="#schedule" class="nav-item" :class="{'is-current': isSharedView}">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M8 3v4m8-4v4M4 11h16m-11 4h2m3 0h2"/></svg>
+          Spelschema <span class="nav-index">02</span>
+        </a>
+        <span v-else class="nav-item nav-disabled" aria-disabled="true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M8 3v4m8-4v4M4 11h16"/></svg>Spelschema <span class="nav-index">02</span></span>
+        <a v-if="schedule" href="#schedule-actions" class="nav-item"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5"/></svg>Exportera &amp; dela</a>
+      </nav>
+      <div class="sidebar-note">
+        <svg class="pitch-illustration" viewBox="0 0 160 110" fill="none" aria-hidden="true"><rect x="12" y="8" width="136" height="94" rx="20"/><path d="M80 8v94M12 35h20v40H12m136-40h-20v40h20"/><circle cx="80" cy="55" r="19"/><circle cx="80" cy="55" r="3" fill="currentColor"/></svg>
+        <strong>En dag. Många matcher.</strong>
+        <p>Lite enklare att få ihop allt.</p>
+      </div>
+      <span class="sidebar-footer">För klubbar, lag och eldsjälar.</span>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <a class="mobile-brand brand" href="/" aria-label="Spelschema – startsida"><span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><rect x="5" y="4" width="22" height="24" rx="7"/><path d="M5 16h22"/><circle cx="16" cy="16" r="4"/></svg></span><span>spelschema<span class="brand-period">.</span></span></a>
+        <div class="breadcrumb"><span>Turneringsplaneraren</span><span aria-hidden="true">/</span><strong>{{ isSharedView ? 'Delat schema' : 'Din arbetsyta' }}</strong></div>
+        <div class="topbar-actions"><span class="status-pill"><span class="status-dot"></span>{{ isSharedView ? 'Visningsläge' : saved ? 'Redigeringsläge' : 'Utkast' }}</span><button v-if="isSharedView || saved" @click="handleCreateNew" class="button button-secondary button-small">+ Skapa nytt schema</button></div>
+      </header>
+
+      <main id="main-content" class="main-content">
+        <section class="page-intro" aria-labelledby="page-title">
           <div>
-            <div class="text-xs font-medium uppercase tracking-[0.3em] text-slate-600 mb-1">Turneringsdag</div>
-            <h1 class="font-display text-5xl md:text-6xl tracking-wider text-white leading-none">
-              SPEL<span class="text-ice-400">SCHEMA</span>
-            </h1>
+            <span class="eyebrow intro-eyebrow"><span class="small-line"></span>{{ isSharedView ? 'DAGS FÖR MATCH' : 'ALLT PÅ SAMMA SPELPLAN' }}</span>
+            <h1 id="page-title">{{ isSharedView ? 'Alla matcher.' : 'Mer spel.' }}<br/><span>{{ isSharedView ? 'En gemensam plan.' : 'Mindre pussel.' }}</span></h1>
+            <p>{{ isSharedView ? 'Här hittar ni tider, motståndare och rinkar. Ladda ner schemat och ta med till turneringsdagen.' : 'Från första matchen till sista slutsignalen. Planera en turneringsdag med plats för både spel och vila.' }}</p>
           </div>
-          <div class="hidden sm:block h-px flex-1 bg-gradient-to-r from-slate-800 to-transparent mb-3"></div>
-          <button
-            v-if="isSharedView || saved"
-            @click="handleCreateNew"
-            class="mb-2 px-5 py-2.5 text-sm font-medium bg-ice-500/15 hover:bg-ice-500/25 text-ice-300 border border-ice-500/25 hover:border-ice-500/40 rounded-lg transition-all cursor-pointer whitespace-nowrap"
-          >
-            + Skapa nytt schema
-          </button>
-        </div>
-      </div>
-    </header>
+          <div v-if="isSharedView && schedule" class="intro-stats"><div><strong>{{ matchCount }}</strong><span>matcher</span></div><div><strong>{{ teamCount }}</strong><span>lag</span></div><div><strong>{{ schedule.numRinks }}</strong><span>{{ schedule.numRinks === 1 ? 'rink' : 'rinkar' }}</span></div></div>
+          <ol v-else class="intro-steps" aria-label="Så skapar du ett schema"><li><span>01</span><div><strong>Samla lagen</strong><small>Klubbar och deltagande lag</small></div></li><li><span>02</span><div><strong>Planera dagen</strong><small>Matcher, vila och pauser</small></div></li><li><span>03</span><div><strong>Generera &amp; dela</strong><small>En plan att samlas kring</small></div></li></ol>
+        </section>
 
-    <!-- Main content -->
-    <main class="max-w-6xl mx-auto px-6 py-10">
-      <p v-if="loading" role="status">Läser schemat…</p>
-      <div v-if="loadError" role="alert" class="mb-6 rounded-xl border border-rose-400/30 bg-rose-400/10 p-4">
-        <p>{{ loadError }}</p>
-        <button @click="handleCreateNew" class="mt-3 text-ice-300 underline">Skapa ett nytt schema</button>
-      </div>
-      <!-- Setup Form (hidden in shared view) -->
-      <SetupForm v-if="!loading && !loadError && !isSharedView" :initial-data="initialData" :busy="saving" @generate="handleGenerate" />
-      <ul v-if="!schedule && warnings.length" role="alert" class="mt-6 rounded-xl bg-amber-400/10 p-4 text-amber-300">
-        <li v-for="warning in warnings" :key="warning">{{ warning }}</li>
-      </ul>
-      <p v-if="notice" role="status" aria-live="polite" class="my-4 text-sm text-ice-200">{{ notice }}</p>
+        <p v-if="loading" role="status" class="notice">Läser schemat…</p>
+        <div v-if="loadError" role="alert" class="notice notice-error"><p>{{ loadError }}</p><button @click="handleCreateNew" class="button button-secondary">Skapa ett nytt schema</button></div>
+        <SetupForm v-if="!loading && !loadError && !isSharedView" :initial-data="initialData" :busy="saving" @generate="handleGenerate" />
+        <ul v-if="!schedule && warnings.length" role="alert" class="notice notice-warning"><li v-for="warning in warnings" :key="warning">{{ warning }}</li></ul>
+        <p v-if="notice" role="status" aria-live="polite" class="notice">{{ notice }}</p>
 
-      <!-- Schedule Output -->
-      <div v-if="schedule && !loading && !loadError" ref="scheduleSection" :class="isSharedView ? 'mt-4' : 'mt-14 pt-10 border-t border-slate-800/60'">
-        <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <h2 class="font-display text-3xl tracking-wider text-white uppercase">
-            Spelschema
-          </h2>
-          <div class="flex flex-wrap items-center gap-3">
-            <button
-              v-if="!isSharedView"
-              @click="handleRegenerate"
-              :disabled="saving"
-              class="px-5 py-2.5 text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 hover:border-slate-600 rounded-lg transition-all cursor-pointer"
-            >
-              <span class="mr-1.5">&#8635;</span> Generera om
-            </button>
-            <label class="flex items-center gap-2 cursor-pointer group mr-1">
-              <div class="relative">
-                <input
-                  v-model="includeSummaryInPdf"
-                  type="checkbox"
-                  class="sr-only peer"
-                />
-                <div class="w-8 h-4 bg-slate-700 rounded-full peer-checked:bg-ice-500/60 transition-colors"></div>
-                <div class="absolute left-0.5 top-0.5 w-3 h-3 bg-slate-400 rounded-full peer-checked:translate-x-4 peer-checked:bg-white transition-all"></div>
-              </div>
-              <span class="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">Lagsammanfattning</span>
-            </label>
-            <button
-              @click="handleExportPdf"
-              class="px-5 py-2.5 text-sm font-medium bg-ice-500/15 hover:bg-ice-500/25 text-ice-300 border border-ice-500/25 hover:border-ice-500/40 rounded-lg transition-all cursor-pointer"
-            >
-              <span class="mr-1.5">&#8615;</span> Exportera PDF
-            </button>
-            <div class="relative">
-              <button
-                @click.stop="showClubPdfMenu = !showClubPdfMenu"
-                :aria-expanded="showClubPdfMenu"
-                aria-controls="club-pdf-menu"
-                class="px-5 py-2.5 text-sm font-medium bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/25 hover:border-emerald-500/40 rounded-lg transition-all cursor-pointer"
-              >
-                <span class="mr-1.5">&#8615;</span> Klubb-PDF
-              </button>
-              <div
-                v-if="showClubPdfMenu"
-                id="club-pdf-menu"
-                @click.stop
-                class="absolute right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-10 min-w-[180px] py-1"
-              >
-                <button
-                  @click="handleExportAllClubPdfs"
-                  class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 cursor-pointer border-b border-slate-700"
-                >
-                  Alla klubbar
-                </button>
-                <button
-                  v-for="club in currentClubs"
-                  :key="club.name"
-                  @click="handleExportClubPdf(club)"
-                  class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 cursor-pointer"
-                >
-                  {{ club.name }}
-                </button>
-              </div>
-            </div>
-            <button
-              v-if="!isSharedView"
-              @click="handleShare"
-              :disabled="saving"
-              class="px-5 py-2.5 text-sm font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/25 hover:border-amber-500/40 rounded-lg transition-all cursor-pointer"
-            >
-              <span class="mr-1.5">&#128279;</span>
-              <template v-if="saving">Sparar…</template>
-              <template v-else-if="saved">Spara ändringar</template>
-              <template v-else>Spara &amp; dela</template>
-            </button>
+        <section v-if="schedule && !loading && !loadError" id="schedule" ref="scheduleSection" class="schedule-section" aria-labelledby="schedule-title">
+          <div class="schedule-heading"><div><span class="eyebrow">SPELPLANEN ÄR KLAR</span><h2 id="schedule-title">Spelschema</h2><p>{{ matchCount }} matcher · {{ teamCount }} lag · {{ currentSettings.startTime }}–{{ currentSettings.endTime }}</p></div><span class="schedule-tag"><span class="status-dot"></span>{{ isSharedView ? 'Delat schema' : 'Genererat schema' }}</span></div>
+          <div id="schedule-actions" class="schedule-actions">
+            <div class="export-actions"><button v-if="!isSharedView" @click="handleRegenerate" :disabled="saving" class="button button-secondary"><span aria-hidden="true">↻</span> Generera om</button><button @click="handleExportPdf" class="button button-secondary"><span aria-hidden="true">↓</span> Exportera PDF</button><div class="menu-anchor"><button @click.stop="showClubPdfMenu = !showClubPdfMenu" :aria-expanded="showClubPdfMenu" aria-controls="club-pdf-menu" class="button button-secondary">Klubb-PDF <span aria-hidden="true">⌄</span></button><div v-if="showClubPdfMenu" id="club-pdf-menu" @click.stop class="export-menu"><button @click="handleExportAllClubPdfs">Alla klubbar</button><button v-for="club in currentClubs" :key="club.name" @click="handleExportClubPdf(club)">{{ club.name }}</button></div></div></div>
+            <button v-if="!isSharedView" @click="handleShare" :disabled="saving" class="button button-primary"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7 10a4 4 0 0 1 1-3l2-2a4 4 0 0 1 6 6l-2 2m-1-3a4 4 0 0 1-1 3l-2 2a4 4 0 0 1-6-6l2-2"/></svg><template v-if="saving">Sparar…</template><template v-else-if="saved">Spara ändringar</template><template v-else>Spara &amp; dela</template></button>
           </div>
-        </div>
+          <label class="pdf-summary-toggle"><input v-model="includeSummaryInPdf" type="checkbox"/><span>Inkludera lagsammanfattning i PDF</span></label>
 
-        <div v-if="savedLinks && !isSharedView" class="mb-6 space-y-3 rounded-xl border border-slate-700 bg-slate-900 p-4">
-          <p class="text-sm text-slate-300">{{ unsaved ? 'Schemat har ändringar som inte har sparats online.' : 'Visningslänken visar det senast sparade schemat.' }}</p>
-          <label for="public-link" class="block text-sm text-slate-400">Visningslänk – dela med deltagarna</label>
-          <div class="flex flex-wrap gap-2">
-            <input id="public-link" :value="savedLinks.publicUrl" readonly class="min-w-0 flex-1 rounded bg-slate-800 p-2 text-sm" />
-            <button @click="copyLink(savedLinks.publicUrl)" class="rounded bg-slate-700 px-3 py-2 text-sm">Kopiera</button>
+          <div v-if="savedLinks && !isSharedView" class="share-card">
+            <div class="share-card-heading"><div><span class="eyebrow">EN LÄNK TILL HELA DAGEN</span><h3>Dela matcherna. Behåll kontrollen.</h3></div><span class="share-state">{{ unsaved ? 'Osparade ändringar' : 'Sparat' }}</span></div>
+            <p>{{ unsaved ? 'Schemat har ändringar som inte har sparats online.' : 'Visningslänken visar det senast sparade schemat.' }}</p>
+            <div class="share-links-grid"><div><label for="public-link">Visningslänk – dela med deltagarna</label><div class="link-field"><input id="public-link" :value="savedLinks.publicUrl" readonly/><button @click="copyLink(savedLinks.publicUrl)" class="button button-secondary button-small">Kopiera</button></div></div><div><label for="edit-link">Redigeringslänk – behåll privat</label><div class="link-field"><input id="edit-link" :value="savedLinks.editUrl" readonly/><button @click="copyLink(savedLinks.editUrl)" class="button button-secondary button-small">Kopiera redigeringslänk</button></div></div></div>
+            <p class="share-explanation">Alla med visningslänken kan läsa schemat. Redigeringslänken ger rätt att ändra det; den här webbläsaren kommer ihåg den åt dig. Sparade scheman tas bort 180 dagar efter senaste ändring. Ändra inställningarna, generera schemat och spara för att uppdatera deltagarnas länk.</p>
+            <button @click="handleDelete" :disabled="saving" class="button-danger-link">Ta bort sparat schema</button>
           </div>
-          <label for="edit-link" class="block text-sm text-slate-400">Redigeringslänk – behåll privat och spara för framtida ändringar</label>
-          <div class="flex flex-wrap gap-2">
-            <input id="edit-link" :value="savedLinks.editUrl" readonly class="min-w-0 flex-1 rounded bg-slate-800 p-2 text-sm" />
-            <button @click="copyLink(savedLinks.editUrl)" class="rounded bg-slate-700 px-3 py-2 text-sm">Kopiera redigeringslänk</button>
-          </div>
-          <p class="text-xs text-slate-400">Alla med visningslänken kan läsa schemat. Redigeringslänken ger rätt att ändra det; den här webbläsaren kommer ihåg den åt dig. Sparade scheman tas bort 180 dagar efter senaste ändring. Ändra inställningarna, generera schemat och spara för att uppdatera deltagarnas länk.</p>
-          <button @click="handleDelete" :disabled="saving" class="text-sm text-rose-300 underline">Ta bort sparat schema</button>
-        </div>
 
-        <ScheduleGrid :schedule="schedule" :clubs="currentClubs" :pauses="currentSettings?.pauses || []" />
-
-        <div class="mt-8">
+          <ScheduleGrid :schedule="schedule" :clubs="currentClubs" :pauses="currentSettings?.pauses || []" />
           <ScheduleStats :schedule="schedule" :warnings="warnings" :clubs="currentClubs" />
-        </div>
-      </div>
-    </main>
-
-    <!-- Footer -->
-    <footer class="border-t border-slate-800/40 mt-16">
-      <div class="max-w-6xl mx-auto px-6 py-6 text-center text-xs text-slate-700">
-        Spelschema &mdash; Schemat genereras i din webbläsare. När du väljer Spara &amp; dela lagras det online.
-      </div>
-    </footer>
+        </section>
+        <footer class="page-footer"><span class="footer-brand">spelschema.</span><p>Schemat genereras i din webbläsare. När du väljer Spara &amp; dela lagras det online.</p><span>Gjort för turneringsdagen.</span></footer>
+      </main>
+    </div>
   </div>
 </template>
