@@ -1,131 +1,75 @@
 <script setup>
 import { computed } from 'vue'
 import { expandPauses } from '../composables/useScheduler.js'
+import { rinkName } from '../lib/tournament.js'
+import { clubColorByName } from '../lib/clubColors.js'
 
 const props = defineProps({
   schedule: Object,
   clubs: Array,
-  pauses: { type: Array, default: () => [] },
+  settings: { type: Object, default: () => ({}) },
+  focusTeam: { type: String, default: '' },
+  focusClub: { type: String, default: '' },
 })
 
-function timeToMinutes(timeStr) {
-  const [h, m] = timeStr.split(':').map(Number)
-  return h * 60 + m
+function timeToMinutes(value) { const [h, m] = value.split(':').map(Number); return h * 60 + m }
+function minutesToTime(minutes) { return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}` }
+function effectiveDuration(club, pause) {
+  const id = pause.originalId || pause.id
+  return club.pauseDurations && id in club.pauseDurations ? club.pauseDurations[id] : (pause.defaultDuration || 0)
 }
 
-function getEffectiveDuration(club, pause) {
-  const lookupId = pause.originalId || pause.id
-  if (club.pauseDurations && lookupId in club.pauseDurations) {
-    return club.pauseDurations[lookupId]
-  }
-  return pause.defaultDuration || 0
-}
-
-function minutesToTime(minutes) {
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-}
-
-// Interleaved rows: { type: 'slot', slot } or { type: 'pause', label, startTime, endTime, clubs }
 const rows = computed(() => {
   const result = []
   const inserted = new Set()
-
   const lastSlot = props.schedule.slots[props.schedule.slots.length - 1]
   const endMin = lastSlot ? timeToMinutes(lastSlot.endTime) : 0
-  const allPauses = [
-    ...expandPauses(props.pauses, endMin),
-    ...(props.schedule.generatedPauses || []),
-    ...(props.schedule.foodBreakPauses || []),
-  ]
-
+  const allPauses = [...expandPauses(props.settings.pauses || [], endMin), ...(props.schedule.generatedPauses || []), ...(props.schedule.foodBreakPauses || [])]
   for (const slot of props.schedule.slots) {
     const slotStart = timeToMinutes(slot.time)
-
     for (const pause of allPauses) {
       if (inserted.has(pause.id)) continue
       const pauseStart = timeToMinutes(pause.startTime)
-      if (slotStart >= pauseStart) {
-        const affected = (props.clubs || [])
-          .filter(club => {
-            if (pause._isFoodBreak) return (pause._clubNames || []).includes(club.name)
-            return true
-          })
-          .map(club => {
-            const dur = pause._isFoodBreak ? pause.defaultDuration : getEffectiveDuration(club, pause)
-            return dur > 0 ? { name: club.name, duration: dur, endTime: minutesToTime(pauseStart + dur) } : null
-          })
-          .filter(Boolean)
-        if (affected.length > 0) {
-          const windowDuration = pause.windowDuration || 0
-
-          // Compute staggered start times (same logic as scheduler)
-          const maxDur = Math.max(...affected.map(c => c.duration))
-          const spread = windowDuration > 0 && affected.length > 1
-            ? Math.max(0, Math.floor((windowDuration - maxDur) / (affected.length - 1) / 10) * 10)
-            : 0
-          const wStart = timeToMinutes(pause.startTime)
-          const affectedWithTimes = affected.map((c, i) => {
-            const start = wStart + i * spread
-            return { ...c, startTime: minutesToTime(start), endTime: minutesToTime(start + c.duration) }
-          })
-
-          // Only show window end when clubs actually stagger
-          const lastClub = affectedWithTimes[affectedWithTimes.length - 1]
-          const windowEnd = spread > 0 && lastClub
-            ? lastClub.endTime
-            : null
-
-          // Hide per-club times when all clubs break identically (no spread, same duration)
-          const allSameDuration = affected.every(c => c.duration === affected[0].duration)
-          const showClubTimes = spread > 0 || !allSameDuration
-
-          result.push({
-            type: 'pause',
-            label: pause.label || 'Paus',
-            startTime: pause.startTime,
-            endTime: affectedWithTimes[0]?.endTime || null,
-            windowEnd,
-            showClubTimes,
-            clubs: affectedWithTimes,
-          })
-        }
-        inserted.add(pause.id)
+      if (slotStart < pauseStart) continue
+      const affected = (props.clubs || [])
+        .filter(club => !pause._isFoodBreak || (pause._clubNames || []).includes(club.name))
+        .map(club => { const duration = pause._isFoodBreak ? pause.defaultDuration : effectiveDuration(club, pause); return duration > 0 ? { name: club.name, duration } : null })
+        .filter(Boolean)
+      if (affected.length) {
+        const windowDuration = pause.windowDuration || 0
+        const maxDuration = Math.max(...affected.map(c => c.duration))
+        const spread = windowDuration > 0 && affected.length > 1 ? Math.max(0, Math.floor((windowDuration - maxDuration) / (affected.length - 1) / 10) * 10) : 0
+        const timed = affected.map((c, i) => ({ ...c, startTime: minutesToTime(pauseStart + i * spread), endTime: minutesToTime(pauseStart + i * spread + c.duration) }))
+        const sameDuration = affected.every(c => c.duration === affected[0].duration)
+        result.push({
+          type: 'pause',
+          id: pause.id,
+          label: pause.label || (pause._isFoodBreak ? 'Matpaus' : 'Uppehåll'),
+          startTime: pause.startTime,
+          endTime: spread > 0 ? timed[timed.length - 1].endTime : timed[0].endTime,
+          showClubTimes: spread > 0 || !sameDuration || (pause._isFoodBreak && affected.length < (props.clubs || []).length),
+          clubs: timed,
+        })
       }
+      inserted.add(pause.id)
     }
-
-    result.push({ type: 'slot', slot })
+    const empty = slot.matches.every(m => !m.home)
+    const previous = result[result.length - 1]
+    if (empty && previous?.type === 'gap') { previous.endTime = slot.endTime; previous.count++ }
+    else if (empty) result.push({ type: 'gap', id: `gap-${slot.time}`, startTime: slot.time, endTime: slot.endTime, count: 1 })
+    else result.push({ type: 'slot', slot })
   }
   return result
 })
 
-const CLUB_COLORS = [
-  { color: '#3159e8', bg: '#edf1ff' },
-  { color: '#227d72', bg: '#eaf4ef' },
-  { color: '#b9792d', bg: '#fff7e9' },
-  { color: '#975273', bg: '#fff0f3' },
-  { color: '#745ea3', bg: '#f3effa' },
-  { color: '#397e99', bg: '#edf7fb' },
-]
-
-const clubColorMap = computed(() => {
-  const map = {}
-  if (props.clubs) {
-    props.clubs.forEach((club, i) => {
-      map[club.name] = CLUB_COLORS[i % CLUB_COLORS.length]
-    })
-  }
-  return map
-})
-
-function getTeamColor(clubName) {
-  return clubColorMap.value[clubName] || CLUB_COLORS[0]
+const rinks = computed(() => Array.from({ length: props.schedule.numRinks }, (_, i) => i + 1))
+const color = name => clubColorByName(props.clubs, name)
+function involved(match) {
+  if (props.focusTeam) return match.home.id === props.focusTeam || match.away.id === props.focusTeam
+  if (props.focusClub) return match.home.clubName === props.focusClub || match.away.clubName === props.focusClub
+  return true
 }
-
-const rinkColumns = computed(() => {
-  return Array.from({ length: props.schedule.numRinks }, (_, i) => i + 1)
-})
+const isFocus = team => props.focusTeam ? team.id === props.focusTeam : props.focusClub ? team.clubName === props.focusClub : false
 </script>
 
 <template>
@@ -133,44 +77,41 @@ const rinkColumns = computed(() => {
     <table class="schedule-table">
       <thead>
         <tr>
-          <th>Tid</th>
-          <th v-for="rink in rinkColumns" :key="rink">Rink {{ rink }}</th>
+          <th scope="col">Tid</th>
+          <th v-for="rink in rinks" :key="rink" scope="col">{{ rinkName(settings, rink) }}</th>
         </tr>
       </thead>
       <tbody>
-        <template v-for="(row, ri) in rows" :key="ri">
+        <template v-for="row in rows" :key="row.type === 'slot' ? row.slot.time : row.id">
           <tr v-if="row.type === 'pause'" class="pause-row">
-            <td :colspan="rinkColumns.length + 1">
+            <td :colspan="rinks.length + 1">
               <div class="pause-content">
-                <span class="pause-label">{{ row.label }}</span>
-                <span>{{ row.startTime }}–{{ row.windowEnd || row.endTime }}</span>
+                <strong><svg viewBox="0 0 24 24"><path d="M18 8h1a4 4 0 0 1 0 8h-1M3 8h15v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4ZM6 2v2m4-2v2m4-2v2"/></svg>{{ row.label }}</strong>
+                <span class="num">{{ row.startTime }}–{{ row.endTime }}</span>
                 <template v-if="row.showClubTimes">
-                  <span v-for="club in row.clubs" :key="club.name" class="pause-club">
-                    {{ club.name }} {{ club.startTime }}–{{ club.endTime }}
-                  </span>
+                  <span v-for="club in row.clubs" :key="club.name" class="pause-club num">{{ club.name }} {{ club.startTime }}–{{ club.endTime }}</span>
                 </template>
               </div>
             </td>
           </tr>
+          <tr v-else-if="row.type === 'gap'" class="gap-row">
+            <td class="slot-time"><strong>{{ row.startTime }}</strong><small>till {{ row.endTime }}</small></td>
+            <td :colspan="rinks.length" class="gap-cell">Inga matcher · {{ row.count }} {{ row.count === 1 ? 'ledig matchtid' : 'lediga matchtider' }}</td>
+          </tr>
           <tr v-else>
-            <td class="slot-time">
-              <strong>{{ row.slot.time }}</strong>
-              <small>{{ row.slot.endTime }}</small>
-            </td>
-            <td v-for="rink in rinkColumns" :key="rink" class="rink-cell">
+            <td class="slot-time"><strong>{{ row.slot.time }}</strong><small>till {{ row.slot.endTime }}</small></td>
+            <td v-for="rink in rinks" :key="rink" class="rink-cell">
               <template v-for="match in row.slot.matches.filter(m => m.rink === rink)" :key="match.rink">
-                <div v-if="match.home && match.away" class="match-card">
-                  <div class="team-tag" :style="{ '--team-color': getTeamColor(match.home.clubName).color, '--team-bg': getTeamColor(match.home.clubName).bg }">
-                    <span class="team-dot"></span>
-                    <div><small>{{ match.home.clubName }}</small><strong>{{ match.home.name }}</strong></div>
+                <div v-if="match.home && match.away" class="match" :class="{ 'is-dim': !involved(match) }">
+                  <div class="team-tag" :class="{ 'is-focus': isFocus(match.home) }" :style="{ '--team-color': color(match.home.clubName).color, '--team-bg': color(match.home.clubName).bg }">
+                    <i aria-hidden="true"></i><div><small>{{ match.home.clubName }}</small><strong>{{ match.home.name }}</strong></div>
                   </div>
-                  <span class="match-versus">mot</span>
-                  <div class="team-tag" :style="{ '--team-color': getTeamColor(match.away.clubName).color, '--team-bg': getTeamColor(match.away.clubName).bg }">
-                    <span class="team-dot"></span>
-                    <div><small>{{ match.away.clubName }}</small><strong>{{ match.away.name }}</strong></div>
+                  <span class="versus" aria-label="mot">mot</span>
+                  <div class="team-tag" :class="{ 'is-focus': isFocus(match.away) }" :style="{ '--team-color': color(match.away.clubName).color, '--team-bg': color(match.away.clubName).bg }">
+                    <i aria-hidden="true"></i><div><small>{{ match.away.clubName }}</small><strong>{{ match.away.name }}</strong></div>
                   </div>
                 </div>
-                <div v-else class="empty-slot">—</div>
+                <div v-else class="empty-rink">Ledig</div>
               </template>
             </td>
           </tr>

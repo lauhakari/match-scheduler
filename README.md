@@ -1,6 +1,6 @@
-# Spelschema
+# Matchplan
 
-A Swedish tournament-day scheduler originally built for youth hockey. Create clubs/teams, schedule games across rinks with rest and pause constraints, and export tournament or club PDFs. Generation runs in the browser; Cloudflare Pages Functions and D1 store shared schedules.
+A Swedish tournament-day scheduler (matchplan.se) originally built for youth hockey. A five-step planner collects the tournament, the playing day with its pauses, clubs and teams (typed or pasted as a list) and the games per team, while a checks panel shows live whether the day works and offers one-click fixes; then it schedules games across rinks with rest and pause constraints, shows the result as a timeline or per team, and exports tournament or club PDFs. Generation runs in the browser; Cloudflare Pages Functions and D1 store shared schedules.
 
 The randomized greedy scheduler respects rest, rink conflicts, maximum games and club pauses, but does not guarantee every requested minimum or preference. Each pair of teams plays at most once. Review the warnings and fixtures before using them for a tournament.
 

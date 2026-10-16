@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { component } from './helpers/vue.js'
 
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'https://scheduler.test/' })
-for (const key of ['window', 'document', 'localStorage', 'history', 'Element', 'HTMLElement', 'SVGElement', 'Node']) globalThis[key] = dom.window[key]
+for (const key of ['window', 'document', 'localStorage', 'history', 'Element', 'HTMLElement', 'SVGElement', 'Node', 'Document', 'ShadowRoot']) globalThis[key] = dom.window[key]
 Element.prototype.scrollIntoView = () => {}
 const { mount, flushPromises } = await import('@vue/test-utils')
 const { nextTick } = await import('vue')

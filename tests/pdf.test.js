@@ -7,7 +7,7 @@ import { normalizeClubs } from '../src/lib/tournament.js'
 
 test('full and club PDFs contain the generated games after draft names change', () => {
   const clubs = normalizeClubs(['A', 'B'].map(name => ({ name, teams: [{ name: '1' }, { name: '2' }] })))
-  const settings = { startTime: '09:00', endTime: '17:00', matchLength: 15, breakLength: 5, numRinks: 1, minGames: 2, maxGames: 5, minRest: 20, allowInterClub: false, pauses: [], foodBreaks: [] }
+  const settings = { name: 'Höstcupen', date: '2026-10-18', venue: 'Lillhallen', rinkLabel: 'Plan', rinkNames: ['Stora planen'], startTime: '09:00', endTime: '17:00', matchLength: 15, breakLength: 5, numRinks: 1, minGames: 2, maxGames: 5, minRest: 20, allowInterClub: false, pauses: [], foodBreaks: [] }
   const scheduler = useScheduler(); scheduler.generate(settings, clubs)
   const snapshot = JSON.parse(JSON.stringify(clubs))
   clubs[0].teams[0].name = 'Changed'
@@ -21,6 +21,8 @@ test('full and club PDFs contain the generated games after draft names change', 
   } finally { jsPDF.API.save = save }
   assert.equal(docs.length, 4)
   for (const doc of docs) assert(doc.output.startsWith('%PDF-'))
+  assert.match(docs[0].output, /Stora planen/)
+  assert.match(docs[0].output, /Lillhallen/)
   for (const doc of docs.slice(2)) {
     assert(!doc.output.includes('Inga matcher schemalagda'))
     assert.match(doc.output, /09:00/)

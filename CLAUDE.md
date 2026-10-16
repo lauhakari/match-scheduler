@@ -20,24 +20,30 @@ Tests use Node's built-in runner. Vue components run in jsdom; API tests execute
 This is a Vue 3 + Vite + Tailwind CSS 4 app. Generation/PDF logic runs client-side. Cloudflare Pages Functions store shared schedules in D1; no Laravel backend is used.
 
 **Data flow:**
-1. `SetupForm.vue` collects and validates input, saves local drafts and emits an independent snapshot to `App.vue`
-2. `App.vue` calls `useScheduler().generate(settings, clubs)` and passes the resulting `schedule` reactive ref down to display components
-3. `ScheduleGrid.vue` renders the time-slot table; `ScheduleStats.vue` shows per-team game counts and warnings
+1. `SetupForm.vue` is the five-step planner (Turnering → Speldag → Lag → Matcher → Spelschema). It owns the draft, validation, local-storage persistence and the stepper, renders the step bodies (`StepTournament.vue`; `StepDay.vue`, which holds the day's times and embeds the pause rows from `StepBreaks.vue`; `StepTeams.vue`; `StepMatches.vue`) and the `PlanOverview.vue` checks panel ("Dagen går ihop": capacity numbers, per-rink day strip and `planChecks` with one-click fixes that patch the settings), and emits an independent snapshot to `App.vue` on submit. Steps 1–4 stay mounted (`v-show`) so inputs keep state and tests can reach them at any step; the step 5 slot hosts the schedule. Validation messages are routed to a step by keyword in `stepFor`.
+2. `App.vue` calls `useScheduler().generate(settings, clubs)`, bumps `resultVersion` so the form jumps to step 5, and renders `ScheduleView.vue` (header, PDF menu, share card, club/team filter, Tidslinje/Per lag switch).
+3. `ScheduleGrid.vue` renders the time-slot table with consecutive empty rounds collapsed; `TeamScheduleList.vue` lists each team's games; `ScheduleStats.vue` shows per-team game counts and warnings with a recovery hint.
 
 **Composables:**
-- `useScheduler.js` — core scheduling algorithm. Builds a list of valid matchups, then greedily assigns them to time slots across rinks, prioritising teams with fewer games. Tracks `gamesPlayed` and `lastGameEnd` per team to enforce `minRest` and `maxGames` constraints.
+- `useScheduler.js` — core scheduling algorithm. Builds a list of valid matchups, then greedily assigns them to time slots across rinks, prioritising pairs where both teams have few games, then other clubs before the own club. Tracks `gamesPlayed` and `lastGameEnd` per team to enforce `minRest` and `maxGames` constraints. The greedy pass runs several times (bounded by tournament size), alternating between the preferred policy and fallbacks without the cross-club preference or the pair ranking, and keeps the result with the fewest teams under `minGames`, then the most games, then the evenest counts, then the fewest internal games. Each pair meets at most once; the slot loop must stay in step with `dayTimeline.js`.
 - `usePdfExport.js` — uses jsPDF + jspdf-autotable to export the schedule as a PDF
 - `useShareUrl.js` — reads validated legacy compressed `#s=` links.
 - `useSavedSchedule.js` — saves/loads/version-updates through `/api/schedules`. Public URLs use `/s/:id`; secret edit tokens live in URL fragments and authorize mutations through headers.
-- `src/lib/tournament.js` — shared validation, identity helpers, workload limits and snapshots.
+- `src/lib/tournament.js` — shared validation, identity helpers, workload limits, snapshots, `DEFAULT_SETTINGS`, `estimateCapacity` (rounds after play-stopping pauses, games per team capped by time, opponents and rest, estimated end; an estimate only), `mealCapacityFloor` and `parseTeamList` (paste import, one club per line).
+- `src/lib/dayTimeline.js` — pure mirror of the scheduler's slot loop: playable rounds and play-stopping pauses for a draft. Tests assert it matches `useScheduler` round for round.
+- `src/lib/planChecks.js` — the checks panel's status, summary, Kontroller list with settings patches, and the day-strip cells.
+- `src/lib/clubColors.js` — club colour palette shared by the grid, team list, stats and filter chips.
 
 `functions/api/schedules/[[path]].js` is the D1 API; migration SQL lives in `migrations/`. Never deploy the placeholder database ID or apply remote migrations without authorization. See README for local development/deployment.
 
 **Team identity:** New clubs/teams have stable UUIDs. Legacy teams fall back to `"ClubName::TeamName"`. Club names and per-club team names are validated for uniqueness; `::` is reserved. Pause/color grouping still uses validated club names.
 
-**Settings shape** (defined in `SetupForm.vue`):
+**Settings shape** (`DEFAULT_SETTINGS` in `src/lib/tournament.js`):
 ```js
 {
+  name, date, venue,    // optional strings; date is "YYYY-MM-DD" or ""
+  rinkLabel,            // 'Rink' | 'Plan' | 'Bana' — what the UI and PDFs call a playing surface
+  rinkNames,            // optional string[] (≤10, ≤40 chars); blank entries fall back to "<rinkLabel> N"
   startTime, endTime,   // "HH:MM" strings
   matchLength,          // minutes
   breakLength,          // minutes (added to matchLength = slot length)
@@ -48,4 +54,6 @@ This is a Vue 3 + Vite + Tailwind CSS 4 app. Generation/PDF logic runs client-si
 }
 ```
 
-**Language:** The UI is in Swedish (e.g. "Spelschema", "Generera om", "Dela schema").
+All new settings fields are optional so old saves, drafts and `#s=` links keep loading.
+
+**Language:** The UI is in Swedish and written for non-technical organisers (e.g. "Skapa spelschema", "Generera om", "Spara & dela"). Avoid jargon like "slot", "fönster" or abbreviations in labels.

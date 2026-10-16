@@ -1,18 +1,29 @@
 import { jsPDF } from 'jspdf'
 import { autoTable } from 'jspdf-autotable'
 import { expandPauses } from './useScheduler.js'
-import { getTeamId } from '../lib/tournament.js'
+import { getTeamId, rinkName } from '../lib/tournament.js'
+
+function tournamentTitle(settings) { return (settings.name || '').trim() || 'Spelschema' }
+function tournamentLine(settings) {
+  const date = settings.date ? new Date(`${settings.date}T12:00:00`) : null
+  const dateText = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''
+  return [dateText, settings.venue?.trim()].filter(Boolean).join('  ·  ')
+}
+function rinkWord(settings, count) {
+  const plural = { Rink: 'rinkar', Plan: 'planer', Bana: 'banor' }[settings.rinkLabel] || 'rinkar'
+  return `${count} ${count === 1 ? (settings.rinkLabel || 'rink').toLowerCase() : plural}`
+}
 
 // Club palette — muted but distinct, print-friendly
 const CLUB_PALETTE = [
-  { bg: [219, 234, 254], text: [30, 64, 115], accent: [59, 130, 246] },   // blue
-  { bg: [254, 243, 199], text: [120, 80, 10], accent: [245, 158, 11] },    // amber
-  { bg: [209, 250, 229], text: [20, 83, 55], accent: [16, 185, 129] },     // emerald
-  { bg: [254, 215, 226], text: [120, 30, 50], accent: [244, 63, 94] },     // rose
-  { bg: [233, 213, 255], text: [76, 29, 149], accent: [139, 92, 246] },    // purple
-  { bg: [207, 250, 254], text: [22, 78, 99], accent: [6, 182, 212] },      // cyan
-  { bg: [255, 228, 196], text: [120, 60, 15], accent: [249, 115, 22] },    // orange
-  { bg: [252, 231, 243], text: [112, 26, 86], accent: [236, 72, 153] },    // pink
+  { bg: [237, 241, 253], text: [29, 58, 156], accent: [49, 89, 232] },     // blue
+  { bg: [232, 243, 241], text: [27, 95, 87], accent: [34, 125, 114] },     // teal
+  { bg: [252, 236, 229], text: [128, 50, 24], accent: [194, 85, 47] },     // rust
+  { bg: [242, 234, 251], text: [84, 42, 130], accent: [138, 79, 199] },    // purple
+  { bg: [253, 232, 238], text: [128, 30, 60], accent: [200, 56, 104] },    // rose
+  { bg: [224, 243, 248], text: [22, 78, 99], accent: [23, 142, 176] },     // cyan
+  { bg: [232, 244, 226], text: [44, 92, 30], accent: [84, 150, 56] },      // green
+  { bg: [253, 240, 222], text: [120, 70, 10], accent: [214, 130, 20] },    // amber
 ]
 
 function timeToMinutes(timeStr) {
@@ -87,25 +98,29 @@ export function usePdfExport() {
     })
 
     // --- Header band ---
-    doc.setFillColor(17, 24, 39)
+    doc.setFillColor(23, 43, 54)
     doc.rect(0, 0, pageW, 28, 'F')
 
-    // Accent stripe
-    doc.setFillColor(42, 149, 255)
-    doc.rect(0, 28, pageW, 1.5, 'F')
+    // Rink rule: red half, blue half
+    doc.setFillColor(194, 55, 47)
+    doc.rect(0, 28, pageW / 2, 1.5, 'F')
+    doc.setFillColor(49, 89, 232)
+    doc.rect(pageW / 2, 28, pageW / 2, 1.5, 'F')
 
     // Title
     doc.setTextColor(255, 255, 255)
-    doc.setFontSize(20)
+    doc.setFontSize(18)
     doc.setFont('helvetica', 'bold')
-    doc.text('TURNERINGSSCHEMA', 14, 13)
+    doc.text(tournamentTitle(settings).toUpperCase(), 14, 12)
 
-    // Subtitle line
+    // Subtitle lines
     doc.setFontSize(8)
     doc.setFont('helvetica', 'normal')
-    doc.setTextColor(148, 163, 184)
-    const subtitle = `${settings.startTime} – ${settings.endTime}  ·  ${settings.matchLength} min matcher  ·  ${settings.breakLength} min paus  ·  ${settings.numRinks} rink${settings.numRinks > 1 ? 'ar' : ''}  ·  ${settings.minGames}–${settings.maxGames} matcher/lag  ·  Vila: ${settings.minRest} min  ·  Internmatcher: ${settings.allowInterClub ? 'Ja' : 'Nej'}`
-    doc.text(subtitle, 14, 21)
+    doc.setTextColor(200, 206, 214)
+    const context = tournamentLine(settings)
+    if (context) doc.text(context, 14, 18)
+    const subtitle = `${settings.startTime} – ${settings.endTime}  ·  ${settings.matchLength} min matcher  ·  ${settings.breakLength} min mellan  ·  ${rinkWord(settings, settings.numRinks)}  ·  ${settings.minGames}–${settings.maxGames} matcher/lag  ·  Vila: ${settings.minRest} min  ·  Matcher inom klubben: ${settings.allowInterClub ? 'Ja' : 'Nej'}`
+    doc.text(subtitle, 14, context ? 24 : 20)
 
     // Club legend chips on right side of header
     let chipX = pageW - 14
@@ -134,7 +149,7 @@ export function usePdfExport() {
     const nonRecurringPauses = []
     const insertedPauses = new Set()
 
-    const rinkHeaders = Array.from({ length: schedule.numRinks }, (_, i) => `Rink ${i + 1}`)
+    const rinkHeaders = Array.from({ length: schedule.numRinks }, (_, i) => rinkName(settings, i + 1))
     const head = [['Tid', ...rinkHeaders]]
 
     // row types: 'slot' or 'pause'
@@ -203,10 +218,10 @@ export function usePdfExport() {
         halign: 'center',
         lineColor: [203, 213, 225],
         lineWidth: 0.3,
-        textColor: [30, 41, 59],
+        textColor: [23, 43, 54],
       },
       headStyles: {
-        fillColor: [30, 41, 59],
+        fillColor: [23, 43, 54],
         textColor: [226, 232, 240],
         fontStyle: 'bold',
         fontSize: 9,
@@ -218,7 +233,7 @@ export function usePdfExport() {
           fontStyle: 'bold',
           cellWidth: 26,
           fillColor: [241, 245, 249],
-          textColor: [30, 41, 59],
+          textColor: [23, 43, 54],
           fontSize: 9,
         },
       },
@@ -319,7 +334,7 @@ export function usePdfExport() {
           cellPadding: 3,
           lineColor: [203, 213, 225],
           lineWidth: 0.3,
-          textColor: [30, 41, 59],
+          textColor: [23, 43, 54],
         },
         headStyles: {
           fillColor: [120, 80, 10],
@@ -364,7 +379,7 @@ export function usePdfExport() {
       doc.rect(0, pageH - 8, pageW, 8, 'F')
       doc.setFontSize(6.5)
       doc.setTextColor(148, 163, 184)
-      doc.text('Genererat med Spelschema', 14, pageH - 3)
+      doc.text('Skapat med Matchplan', 14, pageH - 3)
       doc.text(`Sida ${i} av ${totalPages}`, pageW - 14, pageH - 3, { align: 'right' })
     }
 
@@ -372,7 +387,7 @@ export function usePdfExport() {
   }
 
   function drawSummaryTable(doc, startY, clubs, schedule, clubColorMap) {
-    doc.setFillColor(30, 41, 59)
+    doc.setFillColor(23, 43, 54)
     doc.roundedRect(12, startY, 60, 7, 1.5, 1.5, 'F')
     doc.setTextColor(226, 232, 240)
     doc.setFontSize(9)
@@ -394,10 +409,10 @@ export function usePdfExport() {
         cellPadding: 3,
         lineColor: [203, 213, 225],
         lineWidth: 0.3,
-        textColor: [30, 41, 59],
+        textColor: [23, 43, 54],
       },
       headStyles: {
-        fillColor: [30, 41, 59],
+        fillColor: [23, 43, 54],
         textColor: [226, 232, 240],
         fontStyle: 'bold',
       },
@@ -446,7 +461,7 @@ export function usePdfExport() {
     doc.text(targetClub.name.toUpperCase(), 14, 12)
     doc.setFontSize(9)
     doc.setFont('helvetica', 'normal')
-    doc.text(`${settings.startTime} – ${settings.endTime}  ·  ${settings.matchLength} min matcher`, 14, 19)
+    doc.text([tournamentTitle(settings), tournamentLine(settings), `${settings.startTime} – ${settings.endTime}  ·  ${settings.matchLength} min matcher`].filter(Boolean).join('  ·  '), 14, 19)
 
     // --- Collect pauses for this club ---
     const lastSlot = schedule.slots[schedule.slots.length - 1]
@@ -532,7 +547,7 @@ export function usePdfExport() {
         tableBody.push([
           game.time + '–' + game.endTime,
           `${game.opponent.clubName}  ${game.opponent.name}`,
-          `${game.rink}`,
+          rinkName(settings, game.rink),
         ])
         tableRowTypes.push('game')
       }
@@ -574,7 +589,7 @@ export function usePdfExport() {
 
       autoTable(doc, {
         startY: y,
-        head: [['Tid', 'Motståndare', 'Rink']],
+        head: [['Tid', 'Motståndare', settings.rinkLabel || 'Rink']],
         body: tableBody,
         theme: 'grid',
         styles: {
@@ -582,7 +597,7 @@ export function usePdfExport() {
           cellPadding: 3,
           lineColor: [203, 213, 225],
           lineWidth: 0.3,
-          textColor: [30, 41, 59],
+          textColor: [23, 43, 54],
         },
         headStyles: {
           fillColor: [...colors.accent],
@@ -616,7 +631,7 @@ export function usePdfExport() {
       doc.rect(0, pageH - 8, pageW, 8, 'F')
       doc.setFontSize(6.5)
       doc.setTextColor(148, 163, 184)
-      doc.text('Genererat med Spelschema', 14, pageH - 3)
+      doc.text('Skapat med Matchplan', 14, pageH - 3)
       doc.text(`Sida ${i} av ${totalPages}`, pageW - 14, pageH - 3, { align: 'right' })
     }
 
