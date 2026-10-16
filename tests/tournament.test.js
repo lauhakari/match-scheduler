@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeClubs, snapshotTournament, getTeamId, validateTournament, validatePayload } from '../src/lib/tournament.js'
+import { normalizeClubs, snapshotTournament, getTeamId, validateTournament, validatePayload, estimateCapacity, mealCapacityFloor, parseTeamList, rinkName, DEFAULT_SETTINGS } from '../src/lib/tournament.js'
+import { dayTimeline } from '../src/lib/dayTimeline.js'
 import { useScheduler } from '../src/composables/useScheduler.js'
 
 const settings = () => ({ startTime: '09:00', endTime: '17:00', matchLength: 15, breakLength: 5,
@@ -100,4 +101,150 @@ test('shared payloads reject a repeated opponent and simultaneous or insufficien
     }
     assert.equal(validatePayload(data), false)
   }
+})
+
+test('optional tournament details are bounded and old payloads without them stay valid', () => {
+  const c = normalizeClubs(clubs())
+  assert.deepEqual(validateTournament(settings(), c), [])
+  const full = { ...settings(), name: 'Höstcupen', date: '2026-10-18', venue: 'Lillhallen', rinkLabel: 'Plan', rinkNames: ['Stora', ''] }
+  assert.deepEqual(validateTournament(full, c), [])
+  assert.equal(rinkName(full, 1), 'Stora')
+  assert.equal(rinkName(full, 2), 'Plan 2')
+  assert.equal(rinkName(settings(), 1), 'Rink 1')
+  const bad = validateTournament({ ...settings(), name: 'x'.repeat(81), date: '2026-02-30', rinkLabel: 'Hall', rinkNames: ['y'.repeat(41)], venue: 'z'.repeat(101) }, c)
+  assert.equal(bad.length, 3)
+  assert.ok(validatePayload({ ...payload(), s: { ...settings(), name: 'Cup', date: '2026-10-18', rinkLabel: 'Bana', rinkNames: [] } }))
+  assert.ok(Object.isFrozen(DEFAULT_SETTINGS))
+})
+
+test('capacity estimates follow the day length, rinks, opponents and wanted games', () => {
+  const c = normalizeClubs(clubs())
+  const base = estimateCapacity(settings(), c)
+  assert.equal(base.rounds, 24)
+  assert.equal(base.slots, 24)
+  assert.equal(base.gamesPerTeam, 2)
+  assert.equal(base.enough, true)
+  const short = estimateCapacity({ ...settings(), endTime: '09:20', minGames: 2 }, c)
+  assert.equal(short.rounds, 1)
+  assert.equal(short.gamesPerTeam, 0)
+  assert.equal(short.enough, false)
+  const inter = estimateCapacity({ ...settings(), allowInterClub: true, maxGames: 20 }, c)
+  assert.equal(inter.gamesPerTeam, 3)
+  assert.equal(estimateCapacity({ ...settings(), numRinks: 3 }, c).slots, 72)
+  assert.equal(estimateCapacity({ ...settings(), matchLength: 0, breakLength: 0 }, c).slots, 0)
+})
+
+test('pasted team lists become clubs with unique teams and sensible defaults', () => {
+  const parsed = parseTeamList('Hammarby: Vit, Grön\nAIK - Lag 1; Lag 2\nDjurgården\n\nhammarby: Blå, vit\n')
+  assert.deepEqual(parsed.map(c => [c.name, c.teams.map(t => t.name)]), [
+    ['Hammarby', ['Vit', 'Grön', 'Blå']], ['AIK', ['Lag 1', 'Lag 2']], ['Djurgården', ['Lag 1']],
+  ])
+  assert.deepEqual(parseTeamList(''), [])
+  assert.equal(parseTeamList(Array.from({ length: 30 }, (_, i) => `Klubb ${i}`).join('\n')).length, 20)
+  assert.deepEqual(validateTournament(settings(), normalizeClubs(parsed)), [])
+})
+
+
+test('day timelines mirror scheduler rounds for fixed, recurring, meal and staggered pauses', () => {
+  const fixed = { id: 'shared', startTime: '12:00', defaultDuration: 30, windowDuration: 0, label: 'Paus' }
+  const fixtures = [
+    [settings(), clubs()],
+    [{ ...settings(), pauses: [fixed] }, clubs()],
+    [{ ...settings(), pauses: [{ ...fixed, recurring: true, recurringMode: 'slots', intervalSlots: 4, defaultDuration: 15 }] }, clubs()],
+    [{ ...settings(), pauses: [{ ...fixed, startTime: '10:00', recurring: true, recurringMode: 'time', intervalMinutes: 120, defaultDuration: 10 }] }, clubs()],
+    ...[6, 2].map(maxTeamsPerSlot => [{ ...settings(), foodBreaks: [{ id: 'meal', startTime: '11:30', duration: 45, maxTeamsPerSlot }] }, clubs()]),
+    [{ ...settings(), pauses: [{ ...fixed, windowDuration: 90 }] }, [...clubs(), { name: 'C', teams: [{ name: '1' }] }]],
+    [{ ...settings(), pauses: [{ ...fixed, windowDuration: 35 }] }, clubs()],
+    [{ ...settings(), pauses: [{ ...fixed, id: 'ice', defaultDuration: 30 }] }, clubs()],
+    [{ ...settings(), pauses: [fixed, { ...fixed, id: 'overlap', startTime: '12:15' }] }, clubs()],
+    [{ ...settings(), pauses: [{ ...fixed, id: 'recurring', recurring: true, recurringMode: 'slots', intervalSlots: 4, defaultDuration: 15 }, fixed] }, clubs()],
+  ]
+  for (const [s, c] of fixtures) {
+    const before = JSON.stringify({ s, c })
+    const timeline = dayTimeline(s, c), scheduler = useScheduler()
+    scheduler.generate(s, c)
+    assert.ok(scheduler.schedule.value, scheduler.warnings.value.join(', '))
+    assert.deepEqual(timeline.rounds.map(r => r.startTime), scheduler.schedule.value.slots.map(slot => slot.time))
+    assert.deepEqual(timeline.rounds.map(r => r.endTime), scheduler.schedule.value.slots.map(slot => slot.endTime))
+    assert.equal(timeline.endOfPlay, timeline.rounds.at(-1).endTime)
+    assert.equal(JSON.stringify({ s, c }), before)
+  }
+  assert.equal(dayTimeline(...fixtures[4]).pauses[0].kind, 'meal')
+  assert.equal(dayTimeline(...fixtures[5]).pauses.length, 0)
+  assert.equal(dayTimeline(...fixtures[6]).pauses.length, 0)
+})
+
+test('timeline pause durations follow club overrides and recurring boundary rules', () => {
+  const c = clubs()
+  const pause = { id: 'ice', label: 'Isvård', startTime: '10:00', defaultDuration: 30, windowDuration: 0 }
+  const fixed = dayTimeline({ ...settings(), pauses: [pause] }, c)
+  assert.deepEqual(fixed.pauses, [{ startTime: '10:00', endTime: '10:20', label: 'Isvård', kind: 'pause' }])
+  c[0].pauseDurations.ice = 0
+  assert.equal(dayTimeline({ ...settings(), pauses: [pause] }, c).pauses.length, 0)
+  const recurring = { ...pause, recurring: true, recurringMode: 'slots', intervalSlots: 1 }
+  const short = dayTimeline({ ...settings(), endTime: '10:00', pauses: [recurring] }, c)
+  assert.deepEqual(short.rounds.map(r => r.startTime), ['09:00', '09:20', '09:40'])
+  assert.deepEqual(short.pauses, [])
+  const fitting = dayTimeline({ ...settings(), endTime: '10:05', pauses: [recurring] }, c)
+  assert.deepEqual(fitting.rounds.map(r => r.startTime), ['09:00', '09:50'])
+  assert.deepEqual(fitting.pauses.map(p => [p.startTime, p.endTime]), [['09:20', '09:50']])
+})
+
+test('timeline tolerates incomplete drafts, empty clubs and meals below club capacity', () => {
+  const empty = { slotLength: 0, rounds: [], pauses: [], endOfPlay: '' }
+  for (const s of [null, {}, { ...settings(), startTime: 'bad' }, { ...settings(), endTime: '08:00' },
+    { ...settings(), matchLength: 0 }, { ...settings(), breakLength: -1 }, { ...settings(), numRinks: 11 },
+    { ...settings(), numRinks: 0 }, { ...settings(), matchLength: '15' }]) {
+    assert.deepEqual(dayTimeline(s, clubs()), empty)
+  }
+  for (const c of [undefined, [], [null, { name: 'A', teams: [] }]]) {
+    assert.equal(dayTimeline(settings(), c).rounds.length, 24)
+  }
+  const s = { ...settings(), foodBreaks: [{ startTime: '11:30', duration: 45, maxTeamsPerSlot: 1 }] }
+  assert.equal(dayTimeline(s, clubs()).pauses.length, 0)
+  assert.equal(dayTimeline(s, clubs()).rounds.length, 24)
+  assert.equal(dayTimeline({ ...settings(), endTime: '09:10' }, clubs()).endOfPlay, '')
+})
+
+test('capacity includes the timeline, pause minutes, game totals and end estimate', () => {
+  const base = estimateCapacity(settings(), clubs())
+  assert.equal(base.totalGames, 4)
+  assert.equal(base.usedSlots, 4)
+  assert.equal(base.endEstimate, '10:15')
+  assert.equal(base.pausedMinutes, 0)
+  assert.deepEqual(base.timeline, dayTimeline(settings(), clubs()))
+  const pause = { id: 'shared', startTime: '09:20', defaultDuration: 30, windowDuration: 0 }
+  const paused = estimateCapacity({ ...settings(), pauses: [pause] }, clubs())
+  assert.equal(paused.pausedMinutes, 30)
+  assert.equal(paused.rounds, 22)
+  assert.equal(paused.endEstimate, '10:45')
+  const clipped = estimateCapacity({ ...settings(), pauses: [
+    { ...pause, startTime: '08:50' }, { ...pause, id: 'overlap', startTime: '09:10' },
+    { ...pause, id: 'late', startTime: '16:50' },
+  ] }, clubs())
+  assert.equal(clipped.pausedMinutes, 60)
+  assert.equal(estimateCapacity({ ...settings(), numRinks: 3 }, clubs()).endEstimate, '09:35')
+  for (const c of [[], null, [null], [{ teams: [] }], [{ teams: [{}] }]]) {
+    const result = estimateCapacity(settings(), c)
+    assert.equal(result.totalGames, 0)
+    assert.equal(result.endEstimate, '')
+  }
+  assert.equal(estimateCapacity(null, null).slots, 0)
+})
+
+test('capacity caps each team by rounds of rest measured from match end', () => {
+  const c = Array.from({ length: 12 }, (_, i) => ({ name: `Club ${i}`, teams: [{ name: '1' }] }))
+  const s = { ...settings(), numRinks: 10, maxGames: 20, minRest: 60 }
+  const estimate = estimateCapacity(s, c)
+  assert.equal(estimate.restRounds, 3)
+  assert.equal(estimate.gamesPerTeam, 6)
+  assert.equal(estimateCapacity({ ...s, minRest: 5 }, c).restRounds, 0)
+  assert.equal(estimateCapacity({ ...s, minRest: 0 }, c).restRounds, 0)
+  assert.equal(estimateCapacity({ ...s, endTime: '09:15' }, c).gamesPerTeam, 1)
+  assert.equal(estimateCapacity({ ...s, endTime: '09:10' }, c).gamesPerTeam, 0)
+})
+
+test('meal capacity floor accommodates the biggest whole club and malformed drafts', () => {
+  for (const c of [undefined, null, {}, [], [null, {}, { teams: 'bad' }], clubs()]) assert.equal(mealCapacityFloor(c), 6)
+  assert.equal(mealCapacityFloor([{ teams: Array(9).fill({}) }, { teams: Array(7).fill({}) }]), 9)
 })
