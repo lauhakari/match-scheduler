@@ -223,7 +223,8 @@ test('capacity includes the timeline, pause minutes, game totals and end estimat
     { ...pause, id: 'late', startTime: '16:50' },
   ] }, clubs())
   assert.equal(clipped.pausedMinutes, 60)
-  assert.equal(estimateCapacity({ ...settings(), numRinks: 3 }, clubs()).endEstimate, '09:35')
+  assert.equal(estimateCapacity({ ...settings(), numRinks: 3 }, clubs()).endEstimate, '09:55')
+  assert.equal(estimateCapacity({ ...settings(), numRinks: 3, minRest: 0 }, clubs()).endEstimate, '09:35')
   for (const c of [[], null, [null], [{ teams: [] }], [{ teams: [{}] }]]) {
     const result = estimateCapacity(settings(), c)
     assert.equal(result.totalGames, 0)
@@ -247,4 +248,81 @@ test('capacity caps each team by rounds of rest measured from match end', () => 
 test('meal capacity floor accommodates the biggest whole club and malformed drafts', () => {
   for (const c of [undefined, null, {}, [], [null, {}, { teams: 'bad' }], clubs()]) assert.equal(mealCapacityFloor(c), 6)
   assert.equal(mealCapacityFloor([{ teams: Array(9).fill({}) }, { teams: Array(7).fill({}) }]), 9)
+})
+
+test('joint rest windows bound the tight seven-team day across both rinks', () => {
+  const c = [3, 2, 2].map((count, i) => ({ name: ['Lund', 'Malmö', 'Flagg'][i],
+    teams: Array.from({ length: count }, (_, j) => ({ name: String(j + 1) })) }))
+  const s = { ...settings(), endTime: '12:00', matchLength: 20, breakLength: 5,
+    numRinks: 2, minGames: 4, maxGames: 5, minRest: 20 }
+  const tight = estimateCapacity(s, c)
+  assert.equal(tight.rounds, 7)
+  assert.equal(tight.slots, 14)
+  assert.equal(tight.gameBound, 11)
+  assert.equal(tight.gamesPerTeam, 3)
+  assert.equal(tight.totalGames, 11)
+  assert.equal(tight.endEstimate, '11:50')
+  assert.equal(tight.usedSlots, 11)
+  assert.equal(tight.wantedGames, 14)
+  assert.equal(tight.enough, false)
+  const noRest = estimateCapacity({ ...s, minRest: 0 }, c)
+  assert.equal(noRest.gameBound, 14)
+  assert.equal(noRest.gamesPerTeam, 4)
+  assert.equal(noRest.totalGames, 14)
+  assert.equal(noRest.enough, true)
+  const longer = estimateCapacity({ ...s, endTime: '12:25' }, c)
+  assert.equal(longer.rounds, 8)
+  assert.equal(longer.gameBound, 12)
+  assert.equal(longer.gamesPerTeam, 3)
+  assert.equal(longer.totalGames, 11)
+  assert.equal(longer.endEstimate, '11:50')
+})
+
+test('joint windows use actual times and permit playing again at the exact rest boundary', () => {
+  const c = Array.from({ length: 7 }, (_, i) => ({ name: `Club ${i}`, teams: [{ name: '1' }] }))
+  const s = { ...settings(), endTime: '09:45', matchLength: 20, breakLength: 5,
+    numRinks: 2, minRest: 20 }
+  const adjacent = estimateCapacity(s, c)
+  assert.deepEqual(adjacent.timeline.rounds.map(r => r.startTime), ['09:00', '09:25'])
+  assert.equal(adjacent.gameBound, 3)
+  for (const [endTime, duration] of [['10:00', 20], ['10:05', 25]]) {
+    const paused = estimateCapacity({ ...s, endTime,
+      pauses: [{ id: 'shared', startTime: '09:20', defaultDuration: duration, windowDuration: 0 }] }, c)
+    assert.equal(paused.rounds, 2)
+    assert.equal(paused.gameBound, 4)
+    assert.equal(paused.pausedMinutes, duration)
+    assert.equal(paused.timeline.rounds[1].startTime, duration === 20 ? '09:40' : '09:45')
+  }
+  for (const c of [[], null, [{ teams: [{}] }]]) assert.equal(estimateCapacity(s, c).gameBound, 0)
+  assert.equal(estimateCapacity({ ...s, matchLength: 0 }, c).gameBound, 0)
+})
+
+test('the joint bound never falls below real schedules in a seeded matrix with rests and pauses', () => {
+  const original = Math.random
+  try {
+    for (let i = 0; i < 100; i++) {
+      let seed = i + 42
+      Math.random = () => ((seed = (1664525 * seed + 1013904223) >>> 0) / 4294967296)
+      const c = Array.from({ length: 2 + i % 4 }, (_, club) => ({ name: `Club ${club}`,
+        teams: Array.from({ length: 1 + (i + club) % 3 }, (_, team) => ({ name: `Team ${team}` })) }))
+      const s = { ...settings(), endTime: ['10:30', '12:00', '13:00'][i % 3], matchLength: 10 + i % 3 * 5,
+        numRinks: 1 + i % 3, minGames: 1, maxGames: 5, minRest: [0, 5, 20, 40, 60][i % 5],
+        allowInterClub: Boolean(i % 2) }
+      const pause = { id: 'shared', startTime: '09:30', defaultDuration: 20, windowDuration: 0 }
+      if (i % 4 === 1) s.pauses = [pause]
+      if (i % 4 === 2) s.pauses = [{ ...pause, recurring: true, recurringMode: 'slots', intervalSlots: 2 }]
+      if (i % 4 === 3) s.foodBreaks = [{ id: 'lunch', startTime: '09:30', duration: 20, maxTeamsPerSlot: 80 }]
+      const capacity = estimateCapacity(s, c), scheduler = useScheduler()
+      scheduler.generate(s, c)
+      const schedule = scheduler.schedule.value
+      assert.ok(schedule, `case ${i}: ${scheduler.warnings.value.join(', ')}`)
+      const actualGames = schedule.slots.reduce((sum, slot) => sum + slot.matches.filter(m => m.home).length, 0)
+      assert.ok(actualGames <= capacity.gameBound, `case ${i}: ${actualGames} > ${capacity.gameBound}`)
+      assert.ok(capacity.gameBound <= capacity.slots)
+      assert.ok(capacity.totalGames <= capacity.gameBound)
+      assert.ok(capacity.gamesPerTeam <= Math.floor(2 * capacity.gameBound / capacity.teams))
+    }
+  } finally {
+    Math.random = original
+  }
 })

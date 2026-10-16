@@ -174,17 +174,30 @@ export function estimateCapacity(settings, clubs) {
   const timeline = dayTimeline(settings, clubs)
   const rounds = timeline.rounds.length
   const slots = rounds * (integer(settings.numRinks, 1, 10) ? settings.numRinks : 0)
+  const starts = timeline.rounds.map(round => timeToMinutes(round.startTime))
+  const restWindow = settings.matchLength + (settings.minRest || 0)
+  const bounds = [0]
+  for (let end = 1; end <= rounds; end++) {
+    bounds[end] = Infinity
+    // A team can appear only once within a block shorter than match length plus rest.
+    for (let start = end - 1; start >= 0 && starts[end - 1] - starts[start] < restWindow; start--) {
+      const blockBound = Math.min((end - start) * settings.numRinks, Math.floor(teams / 2))
+      bounds[end] = Math.min(bounds[end], bounds[start] + blockBound)
+    }
+  }
+  const gameBound = Math.min(slots, bounds[rounds])
   const restRounds = timeline.slotLength > 0
     ? Math.max(0, Math.ceil(((settings.minRest || 0) - settings.breakLength) / timeline.slotLength)) : 0
   const restCap = rounds > 0 ? Math.floor((rounds - 1) / (restRounds + 1)) + 1 : 0
   const opponents = Array.isArray(clubs) && !settings.allowInterClub
     ? Math.min(...clubs.map(c => teams - (Array.isArray(c?.teams) ? c.teams.length : 0)))
     : teams - 1
-  const byTime = teams > 1 ? Math.floor(slots * 2 / teams) : 0
+  const byTime = teams > 1 ? Math.floor(gameBound * 2 / teams) : 0
   const gamesPerTeam = Math.max(0, Math.min(byTime, settings.maxGames || byTime, Math.max(0, opponents), restCap))
   const wantedGames = rounds > 0 ? Math.ceil(teams * (settings.minGames || 0) / 2) : 0
-  const totalGames = teams < 2 ? 0 : Math.ceil(teams * gamesPerTeam / 2)
-  const endEstimate = totalGames > 0 ? timeline.rounds[Math.ceil(totalGames / settings.numRinks) - 1]?.endTime || '' : ''
+  const totalGames = teams < 2 ? 0 : Math.min(gameBound, Math.ceil(teams * gamesPerTeam / 2))
+  const endEstimate = totalGames > 0
+    ? timeline.rounds.find((round, index) => Math.min((index + 1) * settings.numRinks, bounds[index + 1]) >= totalGames)?.endTime || '' : ''
   const dayStart = time(settings.startTime) ? timeToMinutes(settings.startTime) : 0
   const dayEnd = time(settings.endTime) ? timeToMinutes(settings.endTime) : 0
   let pausedMinutes = 0
@@ -194,7 +207,7 @@ export function estimateCapacity(settings, clubs) {
     pausedMinutes += Math.max(0, end - start)
   }
   return { teams, rounds, slots, gamesPerTeam, wantedGames, enough: rounds > 0 && teams >= 2 && gamesPerTeam >= (settings.minGames || 0),
-    pausedMinutes, totalGames, usedSlots: totalGames, endEstimate, timeline, restRounds }
+    pausedMinutes, totalGames, usedSlots: totalGames, endEstimate, timeline, restRounds, gameBound }
 }
 
 export function mealCapacityFloor(clubs) {
