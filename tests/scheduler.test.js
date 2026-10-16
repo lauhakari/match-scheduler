@@ -159,3 +159,37 @@ test('food breaks respect capacity and exclude participating teams', () => {
   assert.equal(scheduler.schedule.value, null)
   assert.ok(scheduler.warnings.value.length)
 })
+
+test('when the day holds exactly the wanted games, nobody is left under the minimum while others reach the maximum', () => {
+  const entries = [{ name: 'Lund', teams: [{ name: '1' }, { name: '2' }, { name: '3' }] },
+    { name: 'Malmö', teams: [{ name: '1' }, { name: '2' }] }, { name: 'Flagg', teams: [{ name: '1' }, { name: '2' }] }]
+  const settings = { ...base, endTime: '12:00', matchLength: 20, breakLength: 5, numRinks: 2, minGames: 4, maxGames: 5, minRest: 0 }
+  for (let seed = 1; seed <= 30; seed++) seeded(seed, () => {
+    const schedule = run(settings, entries).schedule.value
+    checkSchedule(schedule, settings)
+    assert.ok(schedule.teamStats.every(t => t.games === 4), schedule.teamStats.map(t => t.games).join(','))
+  })
+})
+
+test('internal games are a fallback: other clubs are met first when internal games are allowed', () => {
+  const entries = ['A', 'B'].map(name => ({ name, teams: [{ name: '1' }, { name: '2' }, { name: '3' }, { name: '4' }] }))
+  const settings = { ...base, matchLength: 20, breakLength: 5, numRinks: 4, minGames: 5, maxGames: 5, minRest: 0, allowInterClub: true }
+  for (let seed = 1; seed <= 30; seed++) seeded(seed, () => {
+    const schedule = run(settings, entries).schedule.value
+    checkSchedule(schedule, settings)
+    const internalByRound = schedule.slots.map(slot => slot.matches.filter(m => m.home && m.home.clubName === m.away.clubName).length)
+    assert.deepEqual(internalByRound.slice(0, 3), [0, 0, 0], internalByRound.join(','))
+    assert.equal(internalByRound.reduce((sum, n) => sum + n, 0), 4)
+    assert.ok(schedule.teamStats.every(t => t.games === 5), schedule.teamStats.map(t => t.games).join(','))
+  })
+})
+
+test('with an odd number of teams per club, meeting the minimum beats the cross-club preference', () => {
+  const entries = ['A', 'B'].map(name => ({ name, teams: [{ name: '1' }, { name: '2' }, { name: '3' }] }))
+  const settings = { ...base, matchLength: 20, breakLength: 5, numRinks: 3, minGames: 4, maxGames: 4, minRest: 0, allowInterClub: true }
+  for (let seed = 1; seed <= 30; seed++) seeded(seed, () => {
+    const schedule = run(settings, entries).schedule.value
+    checkSchedule(schedule, settings)
+    assert.ok(schedule.teamStats.every(t => t.games === 4), schedule.teamStats.map(t => t.games).join(','))
+  })
+})

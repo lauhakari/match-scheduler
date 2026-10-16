@@ -272,16 +272,7 @@ export function useScheduler() {
     }
 
     // Track per-team stats
-    const gamesPlayed = Object.create(null)
-    const lastGameEnd = Object.create(null) // minute when team's last game ends
-    const clubsPlayed = Object.create(null) // track which clubs each team has faced
-    const firstSlotTeams = new Set() // teams that play in the first time slot
     const clusterClubs = new Set(clubs.filter(c => c.cluster).map(c => c.name))
-    teams.forEach(t => {
-      gamesPlayed[t.id] = 0
-      lastGameEnd[t.id] = -Infinity
-      clubsPlayed[t.id] = new Set()
-    })
     const lastTimeSlot = timeSlots[timeSlots.length - 1]
 
     // Precompute blocked intervals per club: { clubName: [[startMin, endMin], ...] }
@@ -336,115 +327,184 @@ export function useScheduler() {
       )
     }
 
-    const usedMatchups = new Set()
-    const slots = []
+    const pairKeys = new Map(allMatchups.map(pair => [pair, JSON.stringify([pair[0].id, pair[1].id].sort())]))
 
-    for (const slotStart of timeSlots) {
-      const matches = []
-      const busyThisSlot = new Set()
-
-      // Shuffle matchups for variety, then sort by priority:
-      // 1. Teams with fewer games first
-      // 2. Prefer clustered clubs' teams that played recently
-      // Club diversity and first/last avoidance are handled as multi-pass constraints below
-      const isLastSlot = slotStart === lastTimeSlot
-      const shuffled = shuffle(allMatchups)
-      shuffled.sort((a, b) => {
-        const aMin = Math.min(gamesPlayed[a[0].id], gamesPlayed[a[1].id])
-        const bMin = Math.min(gamesPlayed[b[0].id], gamesPlayed[b[1].id])
-        if (aMin !== bMin) return aMin - bMin
-
-        // Boost clustered teams that played recently (prefer shorter gaps)
-        const aCluster = clusterClubs.has(a[0].clubName) || clusterClubs.has(a[1].clubName)
-        const bCluster = clusterClubs.has(b[0].clubName) || clusterClubs.has(b[1].clubName)
-        if (aCluster !== bCluster) {
-          const aStarted = aCluster && (lastGameEnd[a[0].id] > -Infinity || lastGameEnd[a[1].id] > -Infinity)
-          const bStarted = bCluster && (lastGameEnd[b[0].id] > -Infinity || lastGameEnd[b[1].id] > -Infinity)
-          if (aStarted && !bStarted) return -1
-          if (!aStarted && bStarted) return 1
-        }
-
-        return 0
+    // One greedy pass over the day. The shuffle makes every pass different, so the
+    // caller runs several with different policies and keeps the best distribution.
+    // evenPairs: rank pairs by both teams' counts, not only the lower one.
+    // crossFirst: meet other clubs before the own club; this can cost a game when
+    // a club has an odd number of teams, which is why the other policies exist.
+    function attempt(policy) {
+      const gamesPlayed = Object.create(null)
+      const lastGameEnd = Object.create(null) // minute when team's last game ends
+      const clubsPlayed = Object.create(null) // track which clubs each team has faced
+      const firstSlotTeams = new Set() // teams that play in the first time slot
+      teams.forEach(t => {
+        gamesPlayed[t.id] = 0
+        lastGameEnd[t.id] = -Infinity
+        clubsPlayed[t.id] = new Set()
       })
+      const usedMatchups = new Set()
+      const slots = []
+      let internal = 0
+      let internalLate = 0
 
-      for (let rink = 0; rink < numRinks; rink++) {
-        let assigned = false
+      for (const slotStart of timeSlots) {
+        const matches = []
+        const busyThisSlot = new Set()
 
-        // Multi-pass assignment with progressive relaxation:
-        // Pass 0: new club opponents only + avoid first/last overlap
-        // Pass 1: new club opponents only (relax first/last)
-        // Pass 2: any opponent + avoid first/last overlap
-        // Pass 3: any opponent (fully relaxed)
-        const maxPasses = isLastSlot ? 4 : 2
-        for (let pass = 0; pass < maxPasses && !assigned; pass++) {
-          const requireNewClub = isLastSlot ? pass < 2 : pass === 0
-          const avoidFirstLast = isLastSlot && (pass % 2 === 0)
-
-        for (const [home, away] of shuffled) {
-          // Skip if this pairing has already been scheduled
-          const pairKey = JSON.stringify([home.id, away.id].sort())
-          if (usedMatchups.has(pairKey)) continue
-
-          // Skip if either team is busy this slot
-          if (busyThisSlot.has(home.id) || busyThisSlot.has(away.id)) continue
-
-          // Skip if either team exceeded max games
-          if (gamesPlayed[home.id] >= settings.maxGames) continue
-          if (gamesPlayed[away.id] >= settings.maxGames) continue
-
-          // Prefer new club opponents: skip if both teams already played against this club
-          if (requireNewClub
-            && clubsPlayed[home.id].has(away.clubName)
-            && clubsPlayed[away.id].has(home.clubName)) continue
-
-          // Avoid first+last slot overlap
-          if (avoidFirstLast && (firstSlotTeams.has(home.id) || firstSlotTeams.has(away.id))) continue
-
-          // Check rest constraint
-          const homeRest = slotStart - lastGameEnd[home.id]
-          const awayRest = slotStart - lastGameEnd[away.id]
-          if (homeRest < settings.minRest || awayRest < settings.minRest) continue
-
-          // Skip if either club is on a pause during this slot
-          const slotEnd = slotStart + settings.matchLength
-          if (isClubBlocked(home.clubName, slotStart, slotEnd)) continue
-          if (isClubBlocked(away.clubName, slotStart, slotEnd)) continue
-
-          // Assign this match
-          matches.push({
-            rink: rink + 1,
-            home,
-            away,
-          })
-          usedMatchups.add(pairKey)
-          busyThisSlot.add(home.id)
-          busyThisSlot.add(away.id)
-          gamesPlayed[home.id]++
-          gamesPlayed[away.id]++
-          clubsPlayed[home.id].add(away.clubName)
-          clubsPlayed[away.id].add(home.clubName)
-          if (slotStart === timeSlots[0]) {
-            firstSlotTeams.add(home.id)
-            firstSlotTeams.add(away.id)
+        // Shuffle matchups for variety, then sort by priority:
+        // 1. Pairs where both teams have few games, then pairs where one of them has few
+        // 2. Prefer opponents from another club when internal games are allowed
+        // 3. Prefer clustered clubs' teams that played recently
+        // Club diversity and first/last avoidance are handled as multi-pass constraints below
+        const isLastSlot = slotStart === lastTimeSlot
+        const shuffled = shuffle(allMatchups)
+        shuffled.sort((a, b) => {
+          const aMin = Math.min(gamesPlayed[a[0].id], gamesPlayed[a[1].id])
+          const bMin = Math.min(gamesPlayed[b[0].id], gamesPlayed[b[1].id])
+          if (aMin !== bMin) return aMin - bMin
+          if (policy.evenPairs) {
+            const aMax = Math.max(gamesPlayed[a[0].id], gamesPlayed[a[1].id])
+            const bMax = Math.max(gamesPlayed[b[0].id], gamesPlayed[b[1].id])
+            if (aMax !== bMax) return aMax - bMax
           }
-          lastGameEnd[home.id] = slotStart + settings.matchLength
-          lastGameEnd[away.id] = slotStart + settings.matchLength
-          assigned = true
-          break
-        }
-        } // end passes loop
 
-        if (!assigned) {
-          matches.push({ rink: rink + 1, home: null, away: null })
+          if (policy.crossFirst) {
+            const aInternal = a[0].clubName === a[1].clubName
+            const bInternal = b[0].clubName === b[1].clubName
+            if (aInternal !== bInternal) return aInternal ? 1 : -1
+          }
+
+          // Boost clustered teams that played recently (prefer shorter gaps)
+          const aCluster = clusterClubs.has(a[0].clubName) || clusterClubs.has(a[1].clubName)
+          const bCluster = clusterClubs.has(b[0].clubName) || clusterClubs.has(b[1].clubName)
+          if (aCluster !== bCluster) {
+            const aStarted = aCluster && (lastGameEnd[a[0].id] > -Infinity || lastGameEnd[a[1].id] > -Infinity)
+            const bStarted = bCluster && (lastGameEnd[b[0].id] > -Infinity || lastGameEnd[b[1].id] > -Infinity)
+            if (aStarted && !bStarted) return -1
+            if (!aStarted && bStarted) return 1
+          }
+
+          return 0
+        })
+
+        for (let rink = 0; rink < numRinks; rink++) {
+          let assigned = false
+
+          // Multi-pass assignment with progressive relaxation:
+          // Pass 0: new club opponents only + avoid first/last overlap
+          // Pass 1: new club opponents only (relax first/last)
+          // Pass 2: any opponent + avoid first/last overlap
+          // Pass 3: any opponent (fully relaxed)
+          const maxPasses = isLastSlot ? 4 : 2
+          for (let pass = 0; pass < maxPasses && !assigned; pass++) {
+            const requireNewClub = isLastSlot ? pass < 2 : pass === 0
+            const avoidFirstLast = isLastSlot && (pass % 2 === 0)
+
+            for (const pair of shuffled) {
+              const [home, away] = pair
+              // Skip if this pairing has already been scheduled
+              const pairKey = pairKeys.get(pair)
+              if (usedMatchups.has(pairKey)) continue
+
+              // Skip if either team is busy this slot
+              if (busyThisSlot.has(home.id) || busyThisSlot.has(away.id)) continue
+
+              // Skip if either team exceeded max games
+              if (gamesPlayed[home.id] >= settings.maxGames) continue
+              if (gamesPlayed[away.id] >= settings.maxGames) continue
+
+              // Prefer new club opponents: skip if both teams already played against
+              // this club; with crossFirst the own club never counts as new
+              if (requireNewClub
+                && ((policy.crossFirst && home.clubName === away.clubName)
+                  || (clubsPlayed[home.id].has(away.clubName) && clubsPlayed[away.id].has(home.clubName)))) continue
+
+              // Avoid first+last slot overlap
+              if (avoidFirstLast && (firstSlotTeams.has(home.id) || firstSlotTeams.has(away.id))) continue
+
+              // Check rest constraint
+              const homeRest = slotStart - lastGameEnd[home.id]
+              const awayRest = slotStart - lastGameEnd[away.id]
+              if (homeRest < settings.minRest || awayRest < settings.minRest) continue
+
+              // Skip if either club is on a pause during this slot
+              const slotEnd = slotStart + settings.matchLength
+              if (isClubBlocked(home.clubName, slotStart, slotEnd)) continue
+              if (isClubBlocked(away.clubName, slotStart, slotEnd)) continue
+
+              // Assign this match
+              matches.push({
+                rink: rink + 1,
+                home,
+                away,
+              })
+              usedMatchups.add(pairKey)
+              busyThisSlot.add(home.id)
+              busyThisSlot.add(away.id)
+              gamesPlayed[home.id]++
+              gamesPlayed[away.id]++
+              clubsPlayed[home.id].add(away.clubName)
+              clubsPlayed[away.id].add(home.clubName)
+              if (home.clubName === away.clubName) { internal++; internalLate += slots.length }
+              if (slotStart === timeSlots[0]) {
+                firstSlotTeams.add(home.id)
+                firstSlotTeams.add(away.id)
+              }
+              lastGameEnd[home.id] = slotStart + settings.matchLength
+              lastGameEnd[away.id] = slotStart + settings.matchLength
+              assigned = true
+              break
+            }
+          } // end passes loop
+
+          if (!assigned) {
+            matches.push({ rink: rink + 1, home: null, away: null })
+          }
         }
+
+        slots.push({
+          time: minutesToTime(slotStart),
+          endTime: minutesToTime(slotStart + settings.matchLength),
+          matches,
+        })
       }
 
-      slots.push({
-        time: minutesToTime(slotStart),
-        endTime: minutesToTime(slotStart + settings.matchLength),
-        matches,
-      })
+      const counts = teams.map(t => gamesPlayed[t.id])
+      return {
+        slots,
+        gamesPlayed,
+        belowMin: counts.filter(c => c < settings.minGames).length,
+        games: usedMatchups.size,
+        spread: Math.max(...counts) - Math.min(...counts),
+        internal,
+        internalLate,
+      }
     }
+
+    // Fewest teams under their minimum wins, then most games, then the evenest counts,
+    // then the fewest games inside a club, played as late in the day as possible
+    function better(a, b) {
+      if (a.belowMin !== b.belowMin) return a.belowMin < b.belowMin
+      if (a.games !== b.games) return a.games > b.games
+      if (a.spread !== b.spread) return a.spread < b.spread
+      if (a.internal !== b.internal) return a.internal < b.internal
+      return a.internalLate > b.internalLate
+    }
+
+    // Keep the total work bounded: small tournaments get many tries, huge ones a few.
+    // The preferred policy gets every other attempt and runs first so it wins ties.
+    const preferred = { evenPairs: true, crossFirst: true }
+    const fallbacks = [{ evenPairs: true, crossFirst: false }, { evenPairs: false, crossFirst: false }]
+    const work = allMatchups.length * timeSlots.length * numRinks
+    const attempts = Math.max(4, Math.min(40, Math.floor(3e6 / Math.max(1, work))))
+    let best = attempt(preferred)
+    for (let i = 1; i < attempts; i++) {
+      const candidate = attempt(i % 2 === 0 ? preferred : fallbacks[(i >> 1) % 2])
+      if (better(candidate, best)) best = candidate
+    }
+    const { slots, gamesPlayed } = best
 
     // Generate warnings
     const newWarnings = []
