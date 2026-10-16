@@ -22,7 +22,7 @@ const emit = defineEmits(['regenerate', 'export-pdf', 'export-club-pdf', 'export
 const view = ref(props.shared && typeof window !== 'undefined' && window.matchMedia?.('(max-width: 760px)').matches ? 'teams' : 'grid')
 const focusClub = ref('')
 const focusTeam = ref('')
-const includeSummary = ref(true)
+const includeSummary = ref(false)
 
 const matchCount = computed(() => props.schedule.slots.reduce((count, slot) => count + slot.matches.filter(m => m.home).length, 0))
 const teamCount = computed(() => props.schedule.teamStats.length)
@@ -58,8 +58,8 @@ function pickClub(name) { focusClub.value = focusClub.value === name ? '' : name
         <div class="menu-anchor">
           <button type="button" class="btn btn-secondary" :aria-expanded="menuOpen" aria-controls="pdf-menu" @click.stop="emit('toggle-menu')"><svg viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 17v3h16v-3"/></svg>Ladda ner PDF<svg viewBox="0 0 24 24" style="width:14px;height:14px"><path d="m6 9 6 6 6-6"/></svg></button>
           <div v-if="menuOpen" id="pdf-menu" class="menu" @click.stop>
-            <button type="button" @click="emit('export-pdf', { includeSummary })">Hela schemat</button>
-            <label><input type="checkbox" v-model="includeSummary" /> Ta med matcher per lag</label>
+            <button type="button" @click="emit('export-pdf', { includeSummary: !shared && includeSummary })">Hela schemat</button>
+            <label v-if="!shared"><input type="checkbox" v-model="includeSummary" /> Ta med matcher per lag</label>
             <div class="menu-sep"></div>
             <div class="menu-title">Schema för en klubb</div>
             <button v-for="club in clubs" :key="club.id || club.name" type="button" @click="emit('export-club-pdf', club)">{{ club.name }}</button>
@@ -112,7 +112,7 @@ function pickClub(name) { focusClub.value = focusClub.value === name ? '' : name
 
     <ScheduleGrid v-show="view === 'grid'" :schedule="schedule" :clubs="clubs" :settings="settings" :focus-team="focusTeam" :focus-club="focusClub" />
     <TeamScheduleList v-if="view === 'teams'" :schedule="schedule" :clubs="clubs" :settings="settings" :focus-team="focusTeam" :focus-club="focusClub" />
-    <ScheduleStats :schedule="schedule" :warnings="warnings" :clubs="clubs" :editable="!shared" />
+    <ScheduleStats v-if="!shared" :schedule="schedule" :warnings="warnings" :clubs="clubs" editable />
 
     <div v-if="shared" class="public-cta">
       <p>Planerar du en egen turnering? Matchplan är gratis och schemat skapas direkt i webbläsaren.</p>

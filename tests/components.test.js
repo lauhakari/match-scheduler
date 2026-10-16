@@ -45,7 +45,7 @@ test('server saving creates separate links and updates the same schedule', async
   assert.equal(requests[1].headers.Authorization, `Bearer ${token}`)
   assert.equal(JSON.parse(requests[1].body).version, 1)
 })
-test('public views retain warnings and editor links prefill saved inputs', async () => {
+test('public views hide game counts and warnings, and editor links prefill saved inputs', async () => {
   const data = fixture(), id = 'a'.repeat(32), token = 'b'.repeat(64)
   data.s.minGames = 3
   for (const t of data.g.teamStats) t.belowMin = true
@@ -54,7 +54,10 @@ test('public views retain warnings and editor links prefill saved inputs', async
   history.replaceState(null, '', `/s/${id}`)
   wrapper = mount(App); await flushPromises()
   assert.equal(wrapper.find('form').exists(), false)
-  assert.match(wrapper.text(), /bara 2 match/)
+  assert.match(wrapper.text(), /mot/)
+  assert.doesNotMatch(wrapper.text(), /bara 2 match|Matcher per lag|Färre än önskat/)
+  await wrapper.findAll('button').find(b => b.text().includes('Ladda ner PDF')).trigger('click')
+  assert.doesNotMatch(wrapper.text(), /Ta med matcher per lag/)
   wrapper.unmount()
   history.replaceState(null, '', `/s/${id}#edit=${token}`)
   wrapper = mount(App); await flushPromises()
@@ -106,7 +109,7 @@ test('local reload restores generated games and old valid links still open read-
   wrapper.unmount(); history.replaceState(null, '', url)
   wrapper = mount(App); await flushPromises()
   assert.equal(wrapper.find('form').exists(), false)
-  assert(wrapper.findAll('table').length >= 2)
+  assert.equal(wrapper.findAll('table').length, 1, 'read-only links show the schedule but not the team table')
 })
 
 test('generation waits for pending saves so the visible schedule matches the saved snapshot', async () => {

@@ -16,11 +16,18 @@ test('full and club PDFs contain the generated games after draft names change', 
   try {
     const pdf = usePdfExport()
     pdf.exportPdf(scheduler.schedule.value, settings, snapshot)
-    pdf.exportPdf(scheduler.schedule.value, settings, snapshot, { includeSummary: false })
+    pdf.exportPdf(scheduler.schedule.value, settings, snapshot, { includeSummary: true })
     for (const club of snapshot) pdf.exportClubPdf(scheduler.schedule.value, settings, snapshot, club)
   } finally { jsPDF.API.save = save }
   assert.equal(docs.length, 4)
-  for (const doc of docs) assert(doc.output.startsWith('%PDF-'))
+  for (const doc of docs) {
+    assert(doc.output.startsWith('%PDF-'))
+    assert.match(doc.output, /Gör ditt eget spelschema gratis på/)
+    assert.match(doc.output, /\(matchplan\.se\) Tj/)
+    assert.match(doc.output, /\/URI \(https:\/\/matchplan\.se\)/)
+  }
+  assert.doesNotMatch(docs[0].output, /LAGSAMMANFATTNING/, 'the team summary is for organisers and off by default')
+  assert.match(docs[1].output, /LAGSAMMANFATTNING/)
   assert.match(docs[0].output, /Stora planen/)
   assert.match(docs[0].output, /Lillhallen/)
   for (const doc of docs.slice(2)) {

@@ -179,7 +179,7 @@ function handleRegenerate() {
   if (currentSettings.value && currentClubs.value) handleGenerate({ settings: currentSettings.value, clubs: currentClubs.value })
 }
 
-async function handleExportPdf({ includeSummary = true } = {}) {
+async function handleExportPdf({ includeSummary = false } = {}) {
   showPdfMenu.value = false
   try {
     const { usePdfExport } = await import('./composables/usePdfExport.js')

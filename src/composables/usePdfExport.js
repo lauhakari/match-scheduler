@@ -86,7 +86,7 @@ function buildPauseInfo(pause, clubs) {
 }
 
 export function usePdfExport() {
-  function exportPdf(schedule, settings, clubs, { includeSummary = true } = {}) {
+  function exportPdf(schedule, settings, clubs, { includeSummary = false } = {}) {
     const doc = new jsPDF({ orientation: 'landscape' })
     const pageW = doc.internal.pageSize.getWidth()
     const pageH = doc.internal.pageSize.getHeight()
@@ -371,19 +371,25 @@ export function usePdfExport() {
       }
     }
 
-    // --- Footer ---
+    drawFooter(doc, pageW, pageH)
+
+    doc.save('turneringsschema.pdf')
+  }
+
+  function drawFooter(doc, pageW, pageH) {
+    const lead = 'Skapat med Matchplan · Gör ditt eget spelschema gratis på '
     const totalPages = doc.internal.getNumberOfPages()
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i)
-      doc.setFillColor(241, 245, 249)
+      doc.setFillColor(246, 247, 245)
       doc.rect(0, pageH - 8, pageW, 8, 'F')
-      doc.setFontSize(6.5)
-      doc.setTextColor(148, 163, 184)
-      doc.text('Skapat med Matchplan', 14, pageH - 3)
+      doc.setFontSize(7)
+      doc.setTextColor(104, 118, 124)
+      doc.text(lead, 14, pageH - 3)
       doc.text(`Sida ${i} av ${totalPages}`, pageW - 14, pageH - 3, { align: 'right' })
+      doc.setTextColor(49, 89, 232)
+      doc.textWithLink('matchplan.se', 14 + doc.getTextWidth(lead), pageH - 3, { url: 'https://matchplan.se' })
     }
-
-    doc.save('turneringsschema.pdf')
   }
 
   function drawSummaryTable(doc, startY, clubs, schedule, clubColorMap) {
@@ -623,17 +629,7 @@ export function usePdfExport() {
       y = doc.lastAutoTable.finalY + 8
     }
 
-    // --- Footer ---
-    const totalPages = doc.internal.getNumberOfPages()
-    for (let i = 1; i <= totalPages; i++) {
-      doc.setPage(i)
-      doc.setFillColor(241, 245, 249)
-      doc.rect(0, pageH - 8, pageW, 8, 'F')
-      doc.setFontSize(6.5)
-      doc.setTextColor(148, 163, 184)
-      doc.text('Skapat med Matchplan', 14, pageH - 3)
-      doc.text(`Sida ${i} av ${totalPages}`, pageW - 14, pageH - 3, { align: 'right' })
-    }
+    drawFooter(doc, pageW, pageH)
 
     const safeName = targetClub.name.replace(/[^a-zA-Z0-9\u00C0-\u024F -]/g, '').trim()
     doc.save(`${safeName}.pdf`)
