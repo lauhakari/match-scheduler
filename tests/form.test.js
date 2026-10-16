@@ -103,3 +103,15 @@ test('a meal keeps room for the biggest club and panel fixes patch the settings'
   assert.ok(Number(wrapper.find('#min-games').element.value) < 12)
   assert.match(wrapper.text(), /Dagen går ihop/)
 })
+
+test('the panel suggests a shorter gap between matches and applies it', async () => {
+  wrapper = mount(SetupForm)
+  await wrapper.find('#end-time').setValue('10:10')
+  await wrapper.find('#min-rest').setValue('0')
+  assert.match(wrapper.text(), /Dagen går inte ihop ännu/)
+  const fix = wrapper.findAll('button.btn-fix').find(b => b.text() === '3 min mellan matcherna')
+  assert.ok(fix, 'offers a shorter gap')
+  await fix.trigger('click')
+  assert.equal(wrapper.find('#break-length').element.value, '3')
+  assert.match(wrapper.text(), /Dagen går ihop/)
+})

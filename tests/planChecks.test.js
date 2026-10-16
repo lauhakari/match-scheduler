@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { planChecks, endTimeFor, dayStrip } from '../src/lib/planChecks.js'
+import { planChecks, endTimeFor, breakFor, dayStrip } from '../src/lib/planChecks.js'
 import { estimateCapacity, normalizeClubs } from '../src/lib/tournament.js'
 
 const settings = (extra = {}) => ({ startTime: '09:00', endTime: '17:00', matchLength: 15, breakLength: 5, numRinks: 1, rinkLabel: 'Rink',
@@ -37,12 +37,14 @@ test('unreachable game counts come with fixes that patch the settings', () => {
 
 test('a later end time is suggested only when it fits before midnight and helps', () => {
   const short = settings({ endTime: '09:40', minGames: 2, maxGames: 2 })
-  const later = endTimeFor(2, short, estimateCapacity(short, clubs()))
+  const later = endTimeFor(2, short, clubs())
   assert.equal(later, '10:15')
+  assert.ok(estimateCapacity({ ...short, endTime: later }, clubs()).gamesPerTeam >= 2)
+  assert.ok(estimateCapacity({ ...short, endTime: '10:10' }, clubs()).gamesPerTeam < 2)
   const plan = planChecks(short, clubs())
   assert.ok(plan.checks.find(c => c.id === 'min-games').fixes.some(f => f.label === 'Förläng till 10:15' && f.patch.endTime === '10:15'))
   const late = settings({ startTime: '20:00', endTime: '20:40', minGames: 10, maxGames: 10, allowInterClub: true })
-  assert.equal(endTimeFor(10, late, estimateCapacity(late, clubs())), null)
+  assert.equal(endTimeFor(10, late, clubs()), null)
 })
 
 test('meal checks catch clubs bigger than a pass and passes that run past the end', () => {
@@ -68,4 +70,22 @@ test('the day strip marks used, free and paused cells per rink', () => {
   assert.equal(strip.length, 2)
   assert.equal(strip[0].name, 'Rink 1')
   assert.equal(strip.flatMap(r => r.cells).filter(c => c.kind === 'match').length, capacity.totalGames)
+})
+
+test('a shorter gap between matches is suggested only when it gives every team the games', () => {
+  const tight = [{ name: 'Lund', teams: [{ name: '1' }, { name: '2' }, { name: '3' }] }, { name: 'Malmö', teams: [{ name: '1' }, { name: '2' }] },
+    { name: 'Flagg', teams: [{ name: '1' }, { name: '2' }] }]
+  const day = settings({ endTime: '11:40', matchLength: 20, breakLength: 5, numRinks: 2, minGames: 4, maxGames: 4, minRest: 0 })
+  assert.ok(estimateCapacity(day, tight).gamesPerTeam < 4)
+  const gap = breakFor(4, day, tight)
+  assert.ok(gap >= 2 && gap < 5)
+  assert.ok(estimateCapacity({ ...day, breakLength: gap }, tight).gamesPerTeam >= 4)
+  if (gap < 4) assert.ok(estimateCapacity({ ...day, breakLength: gap + 1 }, tight).gamesPerTeam < 4)
+  const fix = planChecks(day, tight).checks.find(c => c.id === 'min-games').fixes.find(f => f.patch.breakLength !== undefined)
+  assert.deepEqual(fix, { label: `${gap} min mellan matcherna`, patch: { breakLength: gap } })
+  assert.equal(planChecks({ ...day, ...fix.patch }, tight).status, 'ok')
+  assert.equal(breakFor(4, { ...day, breakLength: 2 }, tight), null)
+  assert.equal(breakFor(9, day, tight), null)
+  const fewOpponents = planChecks({ ...day, endTime: '12:00', minGames: 5, maxGames: 5 }, tight).checks.find(c => c.id === 'min-games')
+  assert.ok(!fewOpponents.fixes.some(f => f.patch?.numRinks), 'another rink cannot add opponents')
 })

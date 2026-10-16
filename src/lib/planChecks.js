@@ -8,16 +8,28 @@ const rinkWord = settings => {
   return `${n} ${n === 1 ? (settings.rinkLabel || 'rink').toLowerCase() : plural}`
 }
 
-// End time needed for every team to reach `games` matches, rounded up to five minutes; null when it would pass midnight.
-export function endTimeFor(games, settings, capacity) {
-  const slotLength = (settings.matchLength || 0) + (settings.breakLength || 0)
-  if (!slotLength || capacity.teams < 2 || !capacity.rounds) return null
-  const byCount = Math.ceil(Math.ceil(capacity.teams * games / 2) / settings.numRinks)
-  const byRest = (games - 1) * ((capacity.restRounds || 0) + 1) + 1
-  const rounds = Math.max(byCount, byRest)
-  const minutes = rounds * slotLength - (settings.breakLength || 0) + (capacity.pausedMinutes || 0)
-  const end = Math.ceil((toMinutes(settings.startTime) + minutes) / 5) * 5
-  return end <= 24 * 60 && end > toMinutes(settings.endTime) ? toTime(end) : null
+const MIN_BREAK = 2
+
+// Earliest end time, in five-minute steps before midnight, at which the estimate gives every team `games` matches; null if none.
+export function endTimeFor(games, settings, clubs) {
+  const from = Math.ceil((toMinutes(settings.endTime) + 1) / 5) * 5
+  const reaches = minutes => estimateCapacity({ ...settings, endTime: toTime(minutes) }, clubs).gamesPerTeam >= games
+  let low = from, high = 23 * 60 + 55
+  if (!(from <= high) || !reaches(high)) return null
+  while (low < high) {
+    const mid = low + Math.floor((high - low) / 10) * 5
+    if (reaches(mid)) high = mid
+    else low = mid + 5
+  }
+  return toTime(low)
+}
+
+// Longest gap between matches, from one minute shorter down to MIN_BREAK, at which every team gets `games` matches; null if none.
+export function breakFor(games, settings, clubs) {
+  for (let gap = (settings.breakLength || 0) - 1; gap >= MIN_BREAK; gap--) {
+    if (estimateCapacity({ ...settings, breakLength: gap }, clubs).gamesPerTeam >= games) return gap
+  }
+  return null
 }
 
 function mealGroups(meal, clubs) {
@@ -51,13 +63,19 @@ export function planChecks(settings, clubs, capacity = estimateCapacity(settings
     const fixes = []
     if (!settings.allowInterClub && opponents < settings.minGames) fixes.push(interClubFix)
     if (g >= 1) fixes.push({ label: `Sätt minst ${g}`, patch: { minGames: g, maxGames: Math.max(g, settings.maxGames) } })
-    const later = opponents >= settings.minGames ? endTimeFor(settings.minGames, settings, capacity) : null
+    const gap = opponents >= settings.minGames ? breakFor(settings.minGames, settings, clubs) : null
+    if (gap !== null) fixes.push({ label: `${gap} min mellan matcherna`, patch: { breakLength: gap } })
+    const later = opponents >= settings.minGames ? endTimeFor(settings.minGames, settings, clubs) : null
     if (later) fixes.push({ label: `Förläng till ${later}`, patch: { endTime: later } })
-    if (settings.numRinks < 10 && !later) fixes.push({ label: `Lägg till en ${(settings.rinkLabel || 'rink').toLowerCase()}`, patch: { numRinks: settings.numRinks + 1 } })
+    if (settings.numRinks < 10 && !later && estimateCapacity({ ...settings, numRinks: settings.numRinks + 1 }, clubs).gamesPerTeam >= settings.minGames) {
+      fixes.push({ label: `Lägg till en ${(settings.rinkLabel || 'rink').toLowerCase()}`, patch: { numRinks: settings.numRinks + 1 } })
+    }
     checks.push({ id: 'min-games', level: 'error', text: `Minst ${settings.minGames} matcher per lag ryms inte. Dagen räcker till ${g}${!settings.allowInterClub && opponents < settings.minGames ? `, och lagen har bara ${opponents} möjliga motståndare utanför den egna klubben` : ''}.`, fixes })
   } else if (g < settings.maxGames) {
-    const later = opponents >= settings.maxGames ? endTimeFor(settings.maxGames, settings, capacity) : null
+    const gap = opponents >= settings.maxGames ? breakFor(settings.maxGames, settings, clubs) : null
+    const later = opponents >= settings.maxGames ? endTimeFor(settings.maxGames, settings, clubs) : null
     const fixes = [{ label: `Sätt högst ${g}`, patch: { maxGames: g } }]
+    if (gap !== null) fixes.push({ label: `${gap} min mellan matcherna`, patch: { breakLength: gap } })
     if (later) fixes.push({ label: `Förläng till ${later}`, patch: { endTime: later } })
     checks.push({ id: 'max-games', level: 'warn', text: `Högst ${settings.maxGames} matcher per lag går inte att nå. Dagen rymmer ${g}.`, fixes })
   } else {
